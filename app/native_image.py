@@ -200,6 +200,92 @@ def _cloudinary_candidates(url: str) -> list[Candidate]:
     return []
 
 
+def _meta_cdn_candidates(url: str) -> list[Candidate]:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not (
+        host.endswith("fbcdn.net")
+        or host.endswith("cdninstagram.com")
+        or host.startswith("scontent")
+    ):
+        return []
+
+    candidates: list[Candidate] = []
+    path = parsed.path
+
+    # Older Meta CDN paths may contain an explicit /sNNNxNNN/ resize segment.
+    original_path = re.sub(r"/s\d{2,5}x\d{2,5}/", "/", path, flags=re.I)
+    if original_path != path:
+        candidates.append(
+            Candidate(urlunparse(parsed._replace(path=original_path)), "meta:strip-path-size", 790)
+        )
+
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if pairs:
+        changed = False
+        cleaned: list[tuple[str, str]] = []
+        for key, value in pairs:
+            if key.lower() == "stp":
+                next_value = re.sub(
+                    r"(?:^|_)(?:p|s)\d{2,5}(?:x\d{2,5})?(?=_|$)",
+                    "",
+                    value,
+                    flags=re.I,
+                )
+                next_value = re.sub(r"_+", "_", next_value).strip("_")
+                changed = changed or next_value != value
+                if next_value:
+                    cleaned.append((key, next_value))
+                continue
+            cleaned.append((key, value))
+
+        if changed:
+            candidates.append(
+                Candidate(
+                    urlunparse(parsed._replace(query=urlencode(cleaned))),
+                    "meta:strip-stp-size",
+                    770,
+                )
+            )
+
+    return candidates
+
+
+def _tiktok_douyin_candidates(url: str) -> list[Candidate]:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not re.search(
+        r"(?:tiktokcdn|tiktokcdn-us|muscdn|byteimg|douyinpic|douyincdn|iesdouyin)",
+        host,
+        re.I,
+    ):
+        return []
+
+    candidates: list[Candidate] = []
+    path = parsed.path
+
+    # ByteDance commonly appends a ~tplv-* transformation recipe to the object.
+    # The unsigned/original-looking candidate is only selected if a real HTTP probe
+    # confirms that it is still a valid image.
+    stripped = re.sub(r"~tplv-[^/]+$", "", path, flags=re.I)
+    if stripped != path and stripped:
+        candidates.append(
+            Candidate(urlunparse(parsed._replace(path=stripped)), "bytedance:strip-tplv", 820)
+        )
+
+    stripped_image = re.sub(r"~tplv-[^/]+?\.(?:image|jpeg|webp)$", "", path, flags=re.I)
+    if stripped_image != path and stripped_image:
+        candidates.append(
+            Candidate(
+                urlunparse(parsed._replace(path=stripped_image)),
+                "bytedance:strip-tplv-image",
+                810,
+            )
+        )
+
+    return candidates
+
+
 def _generic_query_candidates(url: str) -> list[Candidate]:
     parsed = urlparse(url)
     pairs = parse_qsl(parsed.query, keep_blank_values=True)
@@ -222,6 +308,8 @@ def generate_candidates(url: str) -> list[Candidate]:
         _cloudinary_candidates,
         _shopify_candidates,
         _wordpress_candidates,
+        _meta_cdn_candidates,
+        _tiktok_douyin_candidates,
         _generic_query_candidates,
     ):
         try:
@@ -396,6 +484,16 @@ def resolve(url: str, referer: str | None = None) -> dict:
 
     write_event("native-image", "resolve-start", message=url, details={"referer": referer})
     candidates = generate_candidates(url)
+    write_event(
+        "native-image",
+        "candidates",
+        message=url,
+        details={
+            "count": len(candidates),
+            "rules": [item.rule for item in candidates],
+            "urls": [item.url for item in candidates],
+        },
+    )
 
     if len(candidates) <= 1:
         probes = [probe(candidate, referer=referer) for candidate in candidates]

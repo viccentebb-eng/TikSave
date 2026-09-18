@@ -254,9 +254,16 @@ function renderCapabilities(data) {
         data-cap-action="${escapeHtml(cap.id)}"
         data-source-url="${escapeHtml(cap.source_url || "")}"
         data-needs-install="${cap.needs_install ? "1" : "0"}"
+        data-strategy="${escapeHtml(cap.strategy || "")}"
       >
         ${escapeHtml(labels[cap.id] || cap.label || cap.id)}
-        ${cap.needs_install ? '<small>requiere instalar motor</small>' : cap.id === "image_max" ? '<small>motor nativo de TikSave</small>' : ""}
+        ${cap.needs_install
+          ? '<small>requiere instalar motor</small>'
+          : cap.id === "image_max"
+            ? (cap.strategy === "dezoom"
+              ? '<small>Dezoomify · visor por mosaicos</small>'
+              : '<small>motor nativo de TikSave</small>')
+            : ""}
       </button>
     `).join("");
   } else {
@@ -473,6 +480,30 @@ $("capability-buttons").addEventListener("click", async (event) => {
     }
 
     if (action === "image_max") {
+      if (button.dataset.strategy === "dezoom") {
+        if (button.dataset.needsInstall === "1") {
+          showMessage("Instalando el motor de mosaicos la primera vez…");
+          await api("/api/dezoom/install", { method: "POST", body: "{}" });
+          button.dataset.needsInstall = "0";
+        }
+
+        const data = await api("/api/dezoom/download", {
+          method: "POST",
+          body: JSON.stringify({
+            source_url: sourceUrl || currentInspection.final_url || urls[0],
+            page_url: urls[0],
+            output_format: "jpg",
+          }),
+        });
+
+        jobsBox.innerHTML = "";
+        jobsBox.classList.remove("hidden");
+        createJobCard(data.id, urls[0], 1, 1);
+        startPolling(data.id);
+        showMessage("Reconstrucción de máxima resolución iniciada con Dezoomify.", "ok");
+        return;
+      }
+
       showMessage("TikSave está probando variantes de mayor resolución…");
       const result = await api("/api/image/download", {
         method: "POST",

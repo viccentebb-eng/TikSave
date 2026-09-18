@@ -409,6 +409,11 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
 
     media: list[dict[str, Any]] = []
     zoom: list[dict[str, Any]] = []
+    is_google_arts_asset = (
+        (host == "artsandculture.google.com" or host.endswith(".artsandculture.google.com"))
+        and bool(re.search(r"^/asset(?:/|$)", urlparse(final_url).path, re.I))
+    )
+
     for candidate in embedded_urls:
         if HLS_RE.search(candidate):
             media.append({"url": candidate, "type": "hls", "score": _stream_score(candidate)})
@@ -422,6 +427,16 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
         for kind, pattern in ZOOM_PATTERNS:
             if pattern.search(candidate):
                 zoom.append({"url": candidate, "kind": kind, "score": 200})
+
+    # dezoomify-rs has a dedicated Google Arts & Culture dezoomer and accepts
+    # the public artwork viewer URL directly; a DZI/IIIF manifest is not required.
+    if is_google_arts_asset:
+        zoom.append({
+            "url": final_url,
+            "kind": "Google Arts & Culture",
+            "score": 1000,
+            "source": "viewer-page",
+        })
 
     media.sort(key=lambda item: int(item.get("score") or 0), reverse=True)
     zoom.sort(key=lambda item: int(item.get("score") or 0), reverse=True)
@@ -457,10 +472,22 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
             "label": f"Descargar imágenes ({len(images)})",
             "available": True,
         })
+
+    if is_google_arts_asset:
+        capabilities.append({
+            "id": "image_max",
+            "label": "Original / máxima resolución",
+            "available": True,
+            "strategy": "dezoom",
+            "needs_install": not bool(result["engine"]["dezoomify"].get("installed")),
+            "source_url": final_url,
+        })
+    elif images:
         capabilities.append({
             "id": "image_max",
             "label": "Buscar original / máxima resolución",
             "available": True,
+            "strategy": "native",
             "needs_install": False,
             "source_url": images[0]["url"],
         })
@@ -474,14 +501,22 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
             "source_url": result["zoom_sources"][0]["url"],
         })
 
-    # Google Arts & Culture often exposes regular Google-hosted preview images even
-    # when the page itself does not expose an IIIF/DeepZoom descriptor.
-    if "artsandculture.google.com" in host and images:
+    if is_google_arts_asset:
         result["kind"] = "artwork"
         result["notes"] = [
             "Google Arts & Culture detectado.",
-            "TikSave Native Image prueba variantes de mayor resolución sobre las imágenes Google/Googleusercontent encontradas; si aparece un descriptor de mosaicos también se ofrece Dezoomify.",
+            "TikSave usará Dezoomify sobre el visor para reconstruir la máxima resolución disponible. Las imágenes directas Googleusercontent siguen usando TikSave Native Image como alternativa.",
         ]
+        write_event(
+            "analyzer",
+            "google-arts-viewer",
+            message=final_url,
+            details={
+                "image_count": len(images),
+                "zoom_sources": result["zoom_sources"],
+                "strategy": "dezoom",
+            },
+        )
 
     result["capabilities"] = capabilities
     return result
@@ -596,12 +631,26 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
     if platform:
         try:
             result = _platform_result(url, platform, downloader, playlist)
+            write_event(
+                "analyzer",
+                "extractor",
+                message=platform,
+                details={"url": url, "engine": "yt-dlp", "status": "ok"},
+            )
             result["input_url"] = input_url
             result["normalized_url"] = url
             result["redirects"] = redirects
             result["cached"] = False
             return _cache_put(url, playlist, result)
         except Exception as extractor_error:
+            write_event(
+                "analyzer",
+                "extractor",
+                level="warning",
+                message=platform,
+                details={"url": url, "engine": "yt-dlp", "status": "fallback"},
+                exc=extractor_error,
+            )
             # A platform extractor can fail even when the browser can still render
             # useful public metadata/images. Fall back to generic page analysis so
             # the UI does not collapse into a single red error.
@@ -648,7 +697,7 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
                             if cap.get("id") not in {"images", "image_max"}
                         ]
                         result["notes"].append(
-                            "La página que recibió el backend es la carcasa/login de Instagram, no las fotos reales del post. La extensión de Firefox puede escanear el carrusel desde tu sesión."
+                            "Instagram requiere tu sesión de Firefox. Abre la publicación y usa la extensión TikSave; la app web no mostrará logos o gráficos de la pantalla de acceso como si fueran fotos."
                         )
                     else:
                         result["images"] = useful_images[:20]

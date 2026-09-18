@@ -14,6 +14,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+from app.diagnostics import write_event
+
 
 RELEASE_API = "https://api.github.com/repos/lovasoa/dezoomify-rs/releases/latest"
 LICENSE_URL = "https://raw.githubusercontent.com/lovasoa/dezoomify-rs/master/LICENSE"
@@ -285,6 +287,17 @@ def run(
 
     command.extend([source_url, str(output_path)])
 
+    write_event(
+        "dezoomify",
+        "command",
+        message=source_url,
+        details={
+            "command": command,
+            "output": str(output_path),
+            "has_referer": bool(referer),
+        },
+    )
+
     if progress:
         progress("Analizando el visor y localizando mosaicos…")
 
@@ -316,9 +329,22 @@ def run(
 
     if return_code != 0:
         detail = "\n".join(output_lines[-8:]).strip()
+        write_event(
+            "dezoomify",
+            "error",
+            level="error",
+            message=source_url,
+            details={"return_code": return_code, "tail": output_lines[-8:]},
+        )
         raise RuntimeError(detail or f"dezoomify-rs terminó con código {return_code}.")
 
     if not output_path.exists():
         raise RuntimeError("El motor terminó sin crear la imagen esperada.")
 
+    write_event(
+        "dezoomify",
+        "done",
+        message=str(output_path),
+        details={"source_url": source_url, "bytes": output_path.stat().st_size},
+    )
     return output_path, "\n".join(output_lines[-8:])

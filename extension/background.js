@@ -44,10 +44,37 @@ function rememberStream(details) {
   streamsByTab.set(details.tabId, next);
 }
 
-function zoomCandidateFromUrl(rawUrl) {
+function zoomCandidateFromUrl(rawUrl, documentUrl = "") {
   const url = String(rawUrl || "");
   const clean = url.split("#")[0];
   const noQuery = clean.split("?")[0];
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+
+    if (
+      (host === "artsandculture.google.com" || host.endsWith(".artsandculture.google.com")) &&
+      /^\/asset(?:\/|$)/i.test(parsed.pathname)
+    ) {
+      return { url: clean, kind: "Google Arts & Culture", score: 1000 };
+    }
+
+    const page = String(documentUrl || "").split("#")[0];
+    if (
+      /(?:^|\.)googleusercontent\.com$/i.test(host) &&
+      /\/ci\//i.test(parsed.pathname) &&
+      /=x\d+-y\d+-z\d+-/i.test(url) &&
+      /^https?:\/\/artsandculture\.google\.com\/asset(?:\/|$)/i.test(page)
+    ) {
+      return {
+        url: page,
+        kind: "Google Arts & Culture",
+        score: 1100,
+        tileUrl: url,
+      };
+    }
+  } catch {}
 
   if (/\/info\.json$/i.test(noQuery)) {
     return { url, kind: "IIIF", score: 240 };
@@ -93,10 +120,16 @@ function zoomCandidateFromUrl(rawUrl) {
 function rememberZoomSource(details) {
   if (details.tabId == null || details.tabId < 0) return;
 
-  const candidate = zoomCandidateFromUrl(details.url);
+  const candidate = zoomCandidateFromUrl(
+    details.url,
+    details.documentUrl || details.originUrl || "",
+  );
   if (!candidate) return;
 
   const current = zoomSourcesByTab.get(details.tabId) || [];
+  const isNew = !current.some(
+    (item) => item.url === candidate.url && item.kind === candidate.kind,
+  );
   const next = [
     {
       ...candidate,
@@ -109,6 +142,23 @@ function rememberZoomSource(details) {
     .slice(0, 16);
 
   zoomSourcesByTab.set(details.tabId, next);
+
+  if (isNew) {
+    api("/api/diagnostics/event", {
+      method: "POST",
+      body: JSON.stringify({
+        component: "firefox-extension",
+        action: "zoom-source-detected",
+        level: "info",
+        message: candidate.url,
+        details: {
+          kind: candidate.kind,
+          request_url: details.url,
+          document_url: details.documentUrl || null,
+        },
+      }),
+    }).catch(() => {});
+  }
 }
 
 browser.webRequest.onBeforeRequest.addListener(
@@ -534,6 +584,23 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === "tiksave-original-download") {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
       const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
+      const detected = (zoomSourcesByTab.get(tab && tab.id) || [])[0];
+
+      if (detected?.kind === "Google Arts & Culture") {
+        await ensureDezoomEngine();
+        const job = await startJob("/api/dezoom/download", {
+          source_url: detected.url,
+          page_url: pageUrl,
+          output_format: "jpg",
+        });
+        await sendToastToActiveTab({
+          status: "done",
+          title: "Máxima resolución en proceso",
+          filename: (job && job.id) || "",
+        });
+        return;
+      }
+
       const result = await downloadResolvedImage(source, pageUrl);
       await sendToastToActiveTab({
         status: "done",
