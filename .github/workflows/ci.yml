@@ -31,3 +31,6 @@ jobs:
 
       - name: Validate extension JavaScript
         run: node --check extension/popup.js
+
+      - name: Validate floating helper JavaScript
+        run: node --check extension/content.js
