@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "TikSave Local",
+  "version": "0.1.0",
+  "description": "Envía el TikTok actual a TikSave Local para guardarlo como MP4 o MP3.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["http://127.0.0.1:8173/*"],
+  "action": {"default_title": "TikSave Local", "default_popup": "popup.html"},
+  "browser_specific_settings": {"gecko": {"id": "tiksave-local@local", "strict_min_version": "128.0"}}
+}
