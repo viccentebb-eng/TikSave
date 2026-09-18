@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import html
 import ipaddress
 import re
 import socket
+import threading
+import time
 import urllib.request
 from html.parser import HTMLParser
 from typing import Any
@@ -16,6 +19,9 @@ from app.native_image import status as native_image_status
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
 MAX_HTML_BYTES = 3_000_000
+ANALYZE_CACHE_TTL = 300.0
+_ANALYZE_CACHE: dict[tuple[str, bool], tuple[float, dict[str, Any]]] = {}
+_ANALYZE_LOCK = threading.Lock()
 IMAGE_EXT_RE = re.compile(r"\.(?:jpe?g|png|webp|avif|gif)(?:[?#]|$)", re.I)
 VIDEO_EXT_RE = re.compile(r"\.(?:mp4|webm|mov|mkv)(?:[?#]|$)", re.I)
 AUDIO_EXT_RE = re.compile(r"\.(?:mp3|m4a|aac|ogg|opus|wav|flac)(?:[?#]|$)", re.I)
@@ -491,45 +497,110 @@ def _stream_score(url: str) -> int:
     return score
 
 
+def _cache_get(url: str, playlist: bool) -> dict[str, Any] | None:
+    key = (url, bool(playlist))
+    now = time.monotonic()
+    with _ANALYZE_LOCK:
+        item = _ANALYZE_CACHE.get(key)
+        if not item:
+            return None
+        created, value = item
+        if now - created > ANALYZE_CACHE_TTL:
+            _ANALYZE_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(value)
+
+
+def _cache_put(url: str, playlist: bool, value: dict[str, Any]) -> dict[str, Any]:
+    key = (url, bool(playlist))
+    with _ANALYZE_LOCK:
+        _ANALYZE_CACHE[key] = (time.monotonic(), copy.deepcopy(value))
+        if len(_ANALYZE_CACHE) > 128:
+            oldest = min(_ANALYZE_CACHE.items(), key=lambda item: item[1][0])[0]
+            _ANALYZE_CACHE.pop(oldest, None)
+    return value
+
+
+def _platform_result(
+    url: str,
+    platform: str,
+    downloader: TikSaveDownloader,
+    playlist: bool,
+) -> dict[str, Any]:
+    info = downloader.inspect(url, playlist=playlist)
+    info["host"] = urlparse(url).hostname
+    info["kind"] = "media"
+    info["engine"] = {
+        "native_image": native_image_status(),
+        "dezoomify": dezoom_status(),
+    }
+
+    capabilities: list[dict[str, Any]] = [
+        {"id": "video", "label": "Descargar MP4", "available": True},
+        {"id": "mp3", "label": "Descargar MP3", "available": True},
+        {"id": "audio", "label": "Solo audio", "available": True},
+    ]
+    if info.get("subtitles"):
+        capabilities.append({
+            "id": "subtitles",
+            "label": f"Subtítulos ({len(info['subtitles'])} idiomas)",
+            "available": True,
+        })
+    if info.get("is_playlist"):
+        capabilities.append({
+            "id": "playlist",
+            "label": f"Lista / colección ({info.get('entry_count') or 'varios'})",
+            "available": True,
+        })
+    if info.get("entries") and len(info["entries"]) > 1:
+        capabilities.append({
+            "id": "selection",
+            "label": f"Elegir elementos ({len(info['entries'])})",
+            "available": True,
+        })
+
+    info["capabilities"] = capabilities
+    return info
+
+
 def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> dict[str, Any]:
     url = _public_http_url(url)
+
+    cached = _cache_get(url, playlist)
+    if cached is not None:
+        cached["cached"] = True
+        return cached
+
     platform = detect_platform(url)
 
     if platform:
-        info = downloader.inspect(url, playlist=playlist)
-        info["host"] = urlparse(url).hostname
-        info["kind"] = "media"
-        info["engine"] = {
-            "native_image": native_image_status(),
-            "dezoomify": dezoom_status(),
-        }
-
-        capabilities: list[dict[str, Any]] = [
-            {"id": "video", "label": "Descargar MP4", "available": True},
-            {"id": "mp3", "label": "Descargar MP3", "available": True},
-            {"id": "audio", "label": "Solo audio", "available": True},
-        ]
-        if info.get("subtitles"):
-            capabilities.append({
-                "id": "subtitles",
-                "label": f"Subtítulos ({len(info['subtitles'])} idiomas)",
-                "available": True,
-            })
-        if info.get("is_playlist"):
-            capabilities.append({
-                "id": "playlist",
-                "label": f"Lista / colección ({info.get('entry_count') or 'varios'})",
-                "available": True,
-            })
-        if info.get("entries") and len(info["entries"]) > 1:
-            capabilities.append({
-                "id": "selection",
-                "label": f"Elegir elementos ({len(info['entries'])})",
-                "available": True,
-            })
-
-        info["capabilities"] = capabilities
-        return info
+        try:
+            result = _platform_result(url, platform, downloader, playlist)
+            result["cached"] = False
+            return _cache_put(url, playlist, result)
+        except Exception as extractor_error:
+            # A platform extractor can fail even when the browser can still render
+            # useful public metadata/images. Fall back to generic page analysis so
+            # the UI does not collapse into a single red error.
+            try:
+                final_url, content_type, body, charset = _request_page(url)
+                result = _classify_generic(url, final_url, content_type, body, charset)
+                result["platform"] = platform
+                result["extractor_error"] = str(extractor_error)
+                result.setdefault("notes", [])
+                result["notes"].append(
+                    "El extractor directo no pudo analizar este enlace. TikSave mostró lo que pudo detectar desde la página pública."
+                )
+                if platform == "instagram":
+                    result["notes"].append(
+                        "Si es una Story o contenido que requiere sesión, abre el contenido en Firefox y usa la extensión de TikSave para aprovechar tu sesión ya iniciada."
+                    )
+                result["cached"] = False
+                return _cache_put(url, playlist, result)
+            except Exception:
+                raise extractor_error
 
     final_url, content_type, body, charset = _request_page(url)
-    return _classify_generic(url, final_url, content_type, body, charset)
+    result = _classify_generic(url, final_url, content_type, body, charset)
+    result["cached"] = False
+    return _cache_put(url, playlist, result)
