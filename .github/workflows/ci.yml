@@ -21,7 +21,7 @@ jobs:
         run: python -m compileall -q app
 
       - name: Import application
-        run: python -c "import app.main; import app.music"
+        run: python -c "import app.main; import app.music; import app.dezoom"
 
       - name: Validate extension manifest
         run: python -m json.tool extension/manifest.json > /dev/null
