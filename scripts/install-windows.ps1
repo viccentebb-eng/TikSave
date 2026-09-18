@@ -134,31 +134,28 @@ if (-not $Ffmpeg) {
 if (-not $SkipEngines) {
     Write-Step "Instalando motores auxiliares"
 
-    $ForceValue = if ($ForceEngineUpdate) { "True" } else { "False" }
-    $EngineScript = @"
-import json
-from app.dezoom import install, status
-
-try:
-    result = install(force=$ForceValue)
-    print(json.dumps(result, ensure_ascii=False))
-    if not result.get("installed"):
-        raise SystemExit(2)
-except Exception as exc:
-    print(json.dumps({"installed": False, "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
-    raise
-"@
-
     try {
         $env:PYTHONUTF8 = "1"
-        $EngineResult = & $VenvPython -c $EngineScript
-        if ($LASTEXITCODE -eq 0) {
+
+        $EngineArgs = @("-m", "app.setup_engines", "install-dezoomify")
+        if ($ForceEngineUpdate) {
+            $EngineArgs += "--force"
+        }
+
+        $EngineResult = & $VenvPython @EngineArgs
+        $EngineExitCode = $LASTEXITCODE
+
+        if ($EngineExitCode -eq 0) {
             Write-Ok "dezoomify-rs instalado y verificado"
             if ($EngineResult) {
                 Write-Host "   $EngineResult" -ForegroundColor DarkGray
             }
         } else {
             Write-Warn "dezoomify-rs no pudo instalarse. TikSave seguira usando el motor nativo para imagenes normales."
+            if ($EngineResult) {
+                Write-Host "   $EngineResult" -ForegroundColor DarkGray
+            }
+            Write-Warn "Puedes volver a intentar con: .\scripts\install-windows.ps1 -ForceEngineUpdate"
         }
     } catch {
         Write-Warn "dezoomify-rs no pudo instalarse: $($_.Exception.Message)"
@@ -169,24 +166,18 @@ except Exception as exc:
 }
 
 Write-Step "Verificacion final"
-$VerifyScript = @"
-import json
-import shutil
-from app import __version__
-from app.dezoom import status as dezoom_status
-from app.native_image import status as image_status
-
-print(json.dumps({
-    "version": __version__,
-    "ffmpeg": shutil.which("ffmpeg"),
-    "native_image": image_status(),
-    "dezoomify": dezoom_status(force=True),
-}, ensure_ascii=False))
-"@
 
 try {
-    $Summary = & $VenvPython -c $VerifyScript
-    Write-Host "   $Summary" -ForegroundColor DarkGray
+    $Summary = & $VenvPython -m app.setup_engines verify
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Verificacion completada"
+        Write-Host "   $Summary" -ForegroundColor DarkGray
+    } else {
+        Write-Warn "La verificacion final devolvio un error."
+        if ($Summary) {
+            Write-Host "   $Summary" -ForegroundColor DarkGray
+        }
+    }
 } catch {
     Write-Warn "No se pudo generar el resumen final: $($_.Exception.Message)"
 }
