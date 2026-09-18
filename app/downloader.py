@@ -120,7 +120,7 @@ def video_format(quality: str) -> str:
         f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/"
         f"b[height<={height}][ext=mp4]/"
         f"bv*[height<={height}]+ba/"
-        f"b[height<={height}]/b"
+        f"b[height<={height}]"
     )
 
 
