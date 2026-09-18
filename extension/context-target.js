@@ -8,12 +8,32 @@
     return /^https?:\/\//i.test(url) ? url : null;
   }
 
+  function bestSrcset(srcset) {
+    if (!srcset) return null;
+    return srcset
+      .split(",")
+      .map((part) => {
+        const pieces = part.trim().split(/\s+/);
+        const url = pieces[0] || "";
+        let score = 0;
+        const descriptor = pieces[1] || "";
+        if (/\d+w$/i.test(descriptor)) score = Number(descriptor.slice(0, -1)) || 0;
+        else if (/\d+(?:\.\d+)?x$/i.test(descriptor)) score = (Number(descriptor.slice(0, -1)) || 0) * 1000;
+        return { url, score };
+      })
+      .filter((item) => /^https?:\/\//i.test(item.url))
+      .sort((a, b) => b.score - a.score)[0]?.url || null;
+  }
+
   function targetMedia(target) {
     let node = target instanceof Element ? target : null;
 
     for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
       if (node instanceof HTMLImageElement) {
-        const url = node.currentSrc || node.src;
+        const url =
+          bestSrcset(node.getAttribute("srcset")) ||
+          node.currentSrc ||
+          node.src;
         if (/^https?:\/\//i.test(url)) {
           return {
             kind: "image",
