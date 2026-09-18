@@ -241,6 +241,100 @@ function safeFilenameFromUrl(value, fallback) {
   return fallback;
 }
 
+function fastOriginalCandidate(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    let changed = false;
+
+    if (host.endsWith("pinimg.com")) {
+      const nextPath = url.pathname.replace(
+        /^\/(?:originals|75x75_RS|\d{2,5}x(?:\d{2,5})?)\//i,
+        "/originals/",
+      );
+      if (nextPath !== url.pathname) {
+        url.pathname = nextPath;
+        changed = true;
+      }
+    }
+
+    if (
+      host.endsWith(".googleusercontent.com") ||
+      host.endsWith(".ggpht.com") ||
+      host === "googleusercontent.com" ||
+      host === "ggpht.com"
+    ) {
+      const nextPath = url.pathname.replace(
+        /=(?:s\d+|w\d+(?:-h\d+)?|h\d+(?:-w\d+)?)(?:-[a-z0-9_-]+)*$/i,
+        "=s0",
+      );
+      if (nextPath !== url.pathname) {
+        url.pathname = nextPath;
+        url.search = "";
+        changed = true;
+      }
+    }
+
+    if (host === "pbs.twimg.com") {
+      if (url.searchParams.has("name")) {
+        url.searchParams.set("name", "orig");
+        changed = true;
+      } else if (/:(?:small|medium|large|thumb)$/i.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/:(?:small|medium|large|thumb)$/i, ":orig");
+        changed = true;
+      }
+    }
+
+    if (/\.(?:jpe?g|png|webp|avif)$/i.test(url.pathname)) {
+      const nextPath = url.pathname
+        .replace(/-\d{2,5}x\d{2,5}(?=\.(?:jpe?g|png|webp|avif)$)/i, "")
+        .replace(/-scaled(?=\.(?:jpe?g|png|webp|avif)$)/i, "");
+      if (nextPath !== url.pathname) {
+        url.pathname = nextPath;
+        changed = true;
+      }
+    }
+
+    return changed ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function openOriginalImage(source, pageUrl = null) {
+  const fast = fastOriginalCandidate(source);
+
+  if (fast) {
+    await browser.tabs.create({ url: fast });
+    api("/api/diagnostics/event", {
+      method: "POST",
+      body: JSON.stringify({
+        component: "firefox-extension",
+        action: "open-original-fast",
+        level: "info",
+        message: fast,
+        details: { source, pageUrl },
+      }),
+    }).catch(() => {});
+    return { url: fast, fast: true };
+  }
+
+  const pendingTab = await browser.tabs.create({ url: "about:blank", active: true });
+
+  try {
+    const result = await resolveNativeImage(source, pageUrl);
+    const target = result?.best?.final_url || result?.best?.url;
+    if (!target) throw new Error("TikSave no encontró una variante de imagen válida.");
+    await browser.tabs.update(pendingTab.id, { url: target });
+    return { url: target, fast: false, result };
+  } catch (error) {
+    try {
+      await browser.tabs.remove(pendingTab.id);
+    } catch {}
+    throw error;
+  }
+}
+
 function contextSource(info, tab) {
   const remembered = contextTargetsByTab.get(tab && tab.id) || {};
   return (info && info.srcUrl) || remembered.url || (info && info.linkUrl) || (tab && tab.url) || null;
@@ -285,7 +379,7 @@ function createContextMenus() {
       browser.contextMenus.create({
         id: "tiksave-original-open",
         parentId: "tiksave-root",
-        title: "Abrir imagen original / máxima resolución",
+        title: "Abrir imagen original",
         contexts: ["image", "page"],
       });
 
@@ -346,11 +440,7 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === "tiksave-original-open") {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
       const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
-      const result = await resolveNativeImage(source, pageUrl);
-      if (!result || !result.best || !(result.best.final_url || result.best.url)) {
-        throw new Error("TikSave no encontró una variante de imagen válida.");
-      }
-      await browser.tabs.create({ url: result.best.final_url || result.best.url });
+      await openOriginalImage(source, pageUrl);
       return;
     }
 
