@@ -10,13 +10,15 @@
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
       <h1>TikSave</h1>
-      <p>TikTok, YouTube, Instagram y Facebook. Video, audio, carruseles, música y subtítulos.</p>
+      <p>Descarga videos, música y subtítulos desde TikTok, YouTube, Instagram y Facebook.</p>
+      <div class="site-badges">
+        <span>TikTok</span><span>YouTube</span><span>Instagram</span><span>Facebook</span>
+      </div>
     </section>
 
     <section class="card">
-      <label for="urls">Enlaces</label>
+      <label for="urls">Pega uno o varios enlaces</label>
       <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea"></textarea>
 
       <div class="controls controls-wide">
@@ -36,20 +38,20 @@
         <label class="check-control">
           <input id="playlist" type="checkbox">
           <span>
-            <strong>Permitir listas / colecciones</strong>
-            <small>Procesa una playlist completa cuando la URL la contiene.</small>
+            <strong>Descargar lista completa</strong>
+            <small>Actívalo si quieres todos los videos de una playlist.</small>
           </span>
         </label>
 
         <label class="check-control">
           <input id="music-metadata" type="checkbox">
           <span>
-            <strong>Corregir música con MusicBrainz</strong>
-            <small>Para MP3 de YouTube: título, artista, álbum, carátula y nombre del archivo.</small>
+            <strong>Completar datos de la canción</strong>
+            <small>Busca artista, álbum y portada para MP3 de YouTube.</small>
           </span>
         </label>
 
-        <button id="inspect" class="secondary preview-button">Analizar primer enlace</button>
+        <button id="inspect" class="secondary preview-button">Ver contenido</button>
       </div>
 
       <div id="preview" class="preview hidden">
@@ -78,14 +80,14 @@
       <div class="actions">
         <button data-mode="video" class="primary">Descargar MP4</button>
         <button data-mode="mp3">Descargar MP3</button>
-        <button data-mode="audio">Audio original</button>
+        <button data-mode="audio">Solo audio</button>
       </div>
 
       <section id="subtitle-panel" class="subcard hidden">
         <div class="subcard-head">
           <div>
             <strong>Subtítulos</strong>
-            <span>Elige idioma y formato. Incluye subtítulos normales y automáticos cuando existan.</span>
+            <span>Elige el idioma y el formato que quieres guardar.</span>
           </div>
         </div>
 
@@ -119,7 +121,7 @@
       </div>
     </section>
 
-    <p class="legal">Úsalo únicamente con contenido que tengas derecho a guardar. TikSave no evita DRM, contenido privado, de pago ni restricciones de acceso.</p>
+    <p class="legal">TikSave guarda archivos disponibles públicamente. Úsalo solo con contenido que tengas derecho a descargar.</p>
   </main>
   <script src="/static/app.js" defer></script>
 </body>
