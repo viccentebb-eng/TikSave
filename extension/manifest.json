@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Descarga videos, imágenes, audio y subtítulos; detecta reproductores y ofrece herramientas de navegación limpia.",
   "permissions": [
     "activeTab",
@@ -11,7 +11,8 @@
     "storage",
     "webRequest",
     "declarativeNetRequest",
-    "downloads"
+    "downloads",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -30,7 +31,9 @@
     }
   },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "declarative_net_request": {
     "rule_resources": [
@@ -43,21 +46,33 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["guard-main.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "guard-main.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "world": "MAIN"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["guard-state.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "guard-state.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["notify.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "notify.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -71,9 +86,23 @@
         "*://*.facebook.com/*",
         "*://fb.watch/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "context-target.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "browser_specific_settings": {
