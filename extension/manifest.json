@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.11.0",
-  "description": "Descarga videos, imágenes, audio y subtítulos; detecta reproductores y ofrece herramientas de navegación limpia.",
+  "version": "0.12.0",
+  "description": "Descarga videos, imágenes, audio y subtítulos; incluye resolución nativa de imágenes, diagnóstico y herramientas de navegación.",
   "permissions": [
     "activeTab",
     "scripting",
