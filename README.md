@@ -318,6 +318,53 @@ git pull
 
 Después recarga el complemento temporal en `about:debugging`.
 
+
+
+## Rama experimental 0.13.0
+
+```text
+feature/installer-ui-performance
+```
+
+Esta rama consolida la instalación, la interfaz y el rendimiento:
+
+- La interfaz principal es más compacta y muestra el estado real de TikSave, FFmpeg, el motor nativo de imágenes y dezoomify-rs.
+- El análisis de enlaces usa caché temporal para no repetir trabajo al pegar, cambiar opciones o volver a analizar el mismo enlace.
+- TikSave Native Image prueba candidatos en paralelo y conserva resultados durante unos minutos.
+- Si yt-dlp falla al analizar Instagram u otra plataforma, TikSave intenta un análisis genérico de la página en lugar de convertir todo el flujo en un error.
+- El instalador de Windows instala automáticamente dezoomify-rs desde el release oficial y verifica que el ejecutable funcione.
+- `-SkipEngines` permite omitir motores externos y `-ForceEngineUpdate` fuerza la actualización de dezoomify-rs.
+- TikSave conserva licencia MIT. dezoomify-rs sigue siendo un programa externo independiente GPL-3.0. Consulta `THIRD_PARTY_NOTICES.md`.
+
+Instalación normal:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/installer-ui-performance
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Forzar actualización del motor de mosaicos:
+
+```powershell
+.\scripts\install-windows.ps1 -ForceEngineUpdate
+```
+
+Omitir motores externos:
+
+```powershell
+.\scripts\install-windows.ps1 -SkipEngines
+```
+
+### Licencias
+
+TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
+
+Si distribuyes un instalador o ZIP que incluya físicamente el binario de dezoomify-rs, revisa y cumple las obligaciones de distribución GPL-3.0 correspondientes a ese binario.
+
 ## Licencia
 
 MIT.
