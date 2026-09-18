@@ -4,6 +4,7 @@ import html
 import os
 import re
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -358,38 +359,193 @@ class TikSaveDownloader:
         results: list[Path] = []
 
         for item in _walk_entries(info):
+            requested = item.get("requested_subtitles") or {}
+
+            for language in languages:
+                track = requested.get(language) or {}
+                filepath = track.get("filepath")
+
+                if filepath:
+                    source = Path(filepath)
+
+                    if target_format == "txt":
+                        if source.exists():
+                            target = source.with_suffix(".txt")
+                            target.write_text(_subtitle_text(source), encoding="utf-8")
+                            results.append(target)
+                        continue
+
+                    converted = source.with_suffix(f".{target_format}")
+                    if converted.exists():
+                        results.append(converted)
+                    elif source.exists() and source.suffix.lower() == f".{target_format}":
+                        results.append(source)
+
             base = Path(ydl.prepare_filename(item)).with_suffix("")
-            patterns: list[str]
+            patterns = (
+                [f"{base.name}.*.vtt", f"{base.name}.*.srt", f"{base.name}.*.ass"]
+                if target_format == "txt"
+                else [f"{base.name}.*.{target_format}"]
+            )
 
-            if target_format == "txt":
-                patterns = [
-                    f"{base.name}.*.vtt",
-                    f"{base.name}.*.srt",
-                    f"{base.name}.*.ass",
-                ]
-            else:
-                patterns = [f"{base.name}.*.{target_format}"]
-
-            matches: list[Path] = []
             for pattern in patterns:
-                matches.extend(base.parent.glob(pattern))
-
-            if target_format == "txt":
-                for source in matches:
-                    target = source.with_suffix(".txt")
-                    target.write_text(_subtitle_text(source), encoding="utf-8")
-                    results.append(target)
-            else:
-                results.extend(matches)
+                for source in base.parent.glob(pattern):
+                    if target_format == "txt":
+                        target = source.with_suffix(".txt")
+                        if not target.exists():
+                            target.write_text(_subtitle_text(source), encoding="utf-8")
+                        results.append(target)
+                    else:
+                        results.append(source)
 
         unique: list[Path] = []
         seen: set[str] = set()
+
         for path in results:
+            if not path.exists():
+                continue
             key = str(path.resolve())
             if key not in seen:
                 seen.add(key)
                 unique.append(path)
+
         return unique
+
+    def _download_subtitles_job(
+        self,
+        job_id: str,
+        job: dict[str, Any],
+        output_template: str,
+    ) -> None:
+        languages = job.get("subtitle_languages") or []
+        target = str(job.get("subtitle_format") or "srt")
+        platform = str(job["platform"])
+        playlist = bool(job.get("playlist"))
+        all_files: list[Path] = []
+        failures: list[str] = []
+        last_info: dict[str, Any] | None = None
+
+        for language_index, language in enumerate(languages, start=1):
+            language_files: list[Path] = []
+            language_error: Exception | None = None
+
+            for retry_index in range(3):
+                if retry_index:
+                    time.sleep(2.0 * retry_index)
+
+                source_format = "vtt/srt/best" if target == "txt" else f"{target}/best"
+                options: dict[str, Any] = {
+                    **self._base_options(browser_user_agents()[0], playlist=playlist),
+                    "skip_download": True,
+                    "writesubtitles": True,
+                    "writeautomaticsub": True,
+                    "subtitleslangs": [language],
+                    "subtitlesformat": source_format,
+                    "outtmpl": output_template,
+                    "windowsfilenames": True,
+                    "overwrites": False,
+                    "sleep_interval_subtitles": 1.0,
+                    "sleep_interval_requests": 0.75,
+                }
+
+                if job.get("selected_items"):
+                    options["playlist_items"] = ",".join(
+                        str(item) for item in job["selected_items"]
+                    )
+
+                if target in {"srt", "vtt", "ass"}:
+                    options["postprocessors"] = [{
+                        "key": "FFmpegSubtitlesConvertor",
+                        "format": target,
+                        "when": "before_dl",
+                    }]
+
+                try:
+                    self.jobs.update(
+                        job_id,
+                        status="processing",
+                        progress=round((language_index - 1) / len(languages) * 100.0, 1),
+                        title=f"Subtítulos: {language}",
+                        current_index=language_index,
+                        total_items=len(languages),
+                    )
+
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        info = ydl.extract_info(job["url"], download=True)
+                        if not info:
+                            raise RuntimeError("No se encontró información del contenido.")
+
+                        last_info = info
+                        language_files = self._subtitle_result_files(
+                            ydl,
+                            info,
+                            target,
+                            [language],
+                        )
+
+                    if language_files:
+                        break
+
+                    language_error = RuntimeError(
+                        f"No se generó un archivo para el idioma {language}."
+                    )
+
+                except Exception as exc:
+                    language_error = exc
+                    error_text = clean_error(exc).lower()
+                    if "429" not in error_text and "too many requests" not in error_text:
+                        break
+
+            if language_files:
+                all_files.extend(language_files)
+            else:
+                failures.append(
+                    f"{language}: {clean_error(language_error or 'sin archivo')}"
+                )
+
+            self.jobs.update(
+                job_id,
+                progress=round(language_index / len(languages) * 100.0, 1),
+            )
+
+        unique_files: list[Path] = []
+        seen: set[str] = set()
+        for path in all_files:
+            key = str(path.resolve())
+            if key not in seen:
+                seen.add(key)
+                unique_files.append(path)
+
+        if not unique_files:
+            error_text = failures[0] if failures else "No se generaron archivos de subtítulos."
+            self.jobs.update(job_id, status="error", progress=100.0, error=error_text[:1000])
+            return
+
+        filename = " · ".join(path.name for path in unique_files[:3])
+        if len(unique_files) > 3:
+            filename += f" · +{len(unique_files) - 3} archivo(s)"
+
+        note = None
+        if failures:
+            note = (
+                f"Se descargaron {len(unique_files)} archivo(s), pero "
+                f"{len(failures)} idioma(s) no pudieron descargarse. "
+                f"{failures[0][:220]}"
+            )
+
+        self.jobs.update(
+            job_id,
+            status="done",
+            progress=100.0,
+            title=self._safe_title(
+                (last_info or {}).get("title") or "Subtítulos"
+            ),
+            filename=filename,
+            speed=None,
+            eta=None,
+            error=None,
+            metadata_note=note,
+        )
 
     def _music_enrich(
         self,
@@ -508,21 +664,8 @@ class TikSaveDownloader:
         elif mode == "audio":
             mode_options.update({"format": "bestaudio/best"})
         elif mode == "subtitles":
-            target = job["subtitle_format"]
-            source_format = "vtt/srt/best" if target == "txt" else f"{target}/best"
-            mode_options.update({
-                "skip_download": True,
-                "writesubtitles": True,
-                "writeautomaticsub": True,
-                "subtitleslangs": job["subtitle_languages"],
-                "subtitlesformat": source_format,
-            })
-            if target in {"srt", "vtt", "ass"}:
-                mode_options["postprocessors"] = [{
-                    "key": "FFmpegSubtitlesConvertor",
-                    "format": target,
-                    "when": "before_dl",
-                }]
+            self._download_subtitles_job(job_id, job, output_template)
+            return
         else:
             self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
             return
