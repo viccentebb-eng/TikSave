@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.12.0",
-  "description": "Descarga videos, imágenes, audio y subtítulos; incluye resolución nativa de imágenes, diagnóstico y herramientas de navegación.",
+  "version": "0.13.0",
+  "description": "TikSave local: video, audio, subtítulos, imágenes originales, mosaicos y herramientas de Firefox.",
   "permissions": [
     "activeTab",
     "scripting",
