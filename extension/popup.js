@@ -1,6 +1,7 @@
 const API = "http://127.0.0.1:8173";
 const urlEl = document.getElementById("url");
 const message = document.getElementById("message");
+const quality = document.getElementById("quality");
 let currentUrl = "";
 
 async function getCurrentTab() {
@@ -11,12 +12,18 @@ async function getCurrentTab() {
 function supportedUrl(url) {
   try {
     const host = new URL(url).hostname.toLowerCase();
+
     return (
       host === "tiktok.com" ||
       host.endsWith(".tiktok.com") ||
       host === "youtube.com" ||
       host.endsWith(".youtube.com") ||
-      host === "youtu.be"
+      host === "youtu.be" ||
+      host === "instagram.com" ||
+      host.endsWith(".instagram.com") ||
+      host === "facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host === "fb.watch"
     );
   } catch {
     return false;
@@ -43,7 +50,11 @@ async function init() {
       document.querySelectorAll("[data-mode]").forEach((button) => {
         button.disabled = true;
       });
-      say("Abre un video público de TikTok o YouTube y vuelve a pulsar la extensión.", "error");
+      quality.disabled = true;
+      say(
+        "Abre contenido público de TikTok, YouTube, Instagram o Facebook.",
+        "error",
+      );
       return;
     }
 
@@ -65,11 +76,16 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
         body: JSON.stringify({
           url: currentUrl,
           mode: button.dataset.mode,
+          quality: quality.value,
+          playlist: false,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "No se pudo iniciar la descarga.");
+
+      if (!res.ok) {
+        throw new Error(data.detail || "No se pudo iniciar la descarga.");
+      }
 
       say("Descarga enviada a TikSave.", "ok");
     } catch (err) {
