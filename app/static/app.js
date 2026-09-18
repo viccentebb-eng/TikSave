@@ -20,7 +20,7 @@ function clearMessage() {
 
 function getUrl() {
   const value = urlInput.value.trim();
-  if (!value) throw new Error("Pega primero un enlace de TikTok.");
+  if (!value) throw new Error("Pega primero un enlace de TikTok o YouTube.");
   return value;
 }
 
@@ -41,8 +41,10 @@ $("inspect").addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ url: getUrl() }),
     });
-    $("title").textContent = data.title || "TikTok";
-    $("uploader").textContent = data.uploader ? `@${String(data.uploader).replace(/^@/, "")}` : "";
+
+    $("title").textContent = data.title || "Video";
+    const platform = data.platform === "youtube" ? "YouTube" : "TikTok";
+    $("uploader").textContent = [platform, data.uploader].filter(Boolean).join(" · ");
     $("thumb").src = data.thumbnail || "";
     $("preview").classList.remove("hidden");
   } catch (err) {
@@ -82,6 +84,7 @@ async function updateJob(jobId) {
     const pct = Number(data.progress || 0);
     bar.style.width = `${pct}%`;
     percent.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+
     const labels = {
       queued: "En cola…",
       starting: "Preparando…",
@@ -90,8 +93,11 @@ async function updateJob(jobId) {
       done: "Terminado",
       error: "Error",
     };
+
     statusEl.textContent = labels[data.status] || data.status;
-    details.textContent = [data.speed, data.eta && `ETA ${data.eta}`, data.filename].filter(Boolean).join(" · ");
+    details.textContent = [data.speed, data.eta && `ETA ${data.eta}`, data.filename]
+      .filter(Boolean)
+      .join(" · ");
 
     if (data.status === "done") {
       clearInterval(pollTimer);
@@ -110,12 +116,22 @@ async function updateJob(jobId) {
 }
 
 $("paste").addEventListener("click", async () => {
-  clearMessage();
+  urlInput.focus();
+
   try {
-    urlInput.value = (await navigator.clipboard.readText()).trim();
-    urlInput.focus();
+    if (!navigator.clipboard?.readText) throw new Error("clipboard unavailable");
+
+    const text = (await navigator.clipboard.readText()).trim();
+    if (!text) {
+      showMessage("El portapapeles está vacío.");
+      return;
+    }
+
+    urlInput.value = text;
+    clearMessage();
   } catch {
-    showMessage("Firefox no permitió leer el portapapeles. Usa Ctrl+V dentro del campo.", "error");
+    urlInput.select();
+    showMessage("Firefox protege el portapapeles. El campo ya está activo: presiona Ctrl+V para pegar.");
   }
 });
 
