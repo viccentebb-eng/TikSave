@@ -84,7 +84,7 @@ if (-not (Test-Path $VenvPython)) {
 
 Write-Host "Instalando dependencias de TikSave..." -ForegroundColor Cyan
 & $VenvPython -m pip install --upgrade pip
-& $VenvPython -m pip install -r requirements.txt
+& $VenvPython -m pip install --upgrade -r requirements.txt
 
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Host "FFmpeg no esta en PATH; intentando instalarlo con winget..." -ForegroundColor Yellow
