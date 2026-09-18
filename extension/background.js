@@ -182,23 +182,41 @@ async function api(path, options = {}) {
 }
 
 
-async function ensureMaxUrlEngine() {
-  let state = await api("/api/maxurl/status");
-  if (!state || !state.installed) {
-    state = await api("/api/maxurl/install", {
-      method: "POST",
-      body: "{}",
-    });
-  }
-  return state;
+async function resolveNativeImage(url, pageUrl = null) {
+  return api("/api/image/resolve", {
+    method: "POST",
+    body: JSON.stringify({
+      url,
+      page_url: pageUrl || null,
+    }),
+  });
 }
 
-async function resolveMaxImage(url) {
-  await ensureMaxUrlEngine();
-  return api("/api/maxurl/resolve", {
+async function downloadResolvedImage(inputUrl, pageUrl = null) {
+  return api("/api/image/download", {
     method: "POST",
-    body: JSON.stringify({ url: url }),
+    body: JSON.stringify({
+      url: inputUrl,
+      page_url: pageUrl || null,
+    }),
   });
+}
+
+async function logExtensionError(action, error, details = {}) {
+  try {
+    await api("/api/diagnostics/event", {
+      method: "POST",
+      body: JSON.stringify({
+        component: "firefox-extension",
+        action,
+        level: "error",
+        message: error?.message || String(error),
+        details,
+      }),
+    });
+  } catch {
+    // Diagnostics must never break the user action.
+  }
 }
 
 async function ensureDezoomEngine() {
@@ -226,27 +244,6 @@ function safeFilenameFromUrl(value, fallback) {
 function contextSource(info, tab) {
   const remembered = contextTargetsByTab.get(tab && tab.id) || {};
   return (info && info.srcUrl) || remembered.url || (info && info.linkUrl) || (tab && tab.url) || null;
-}
-
-async function downloadResolvedImage(inputUrl) {
-  const result = await resolveMaxImage(inputUrl);
-  const best = result && result.best;
-  if (!best || !best.url) {
-    throw new Error("Image Max URL no encontró una versión mayor u original.");
-  }
-
-  let filename = best.filename || safeFilenameFromUrl(best.url, "imagen-original");
-  if (!/\.[a-z0-9]{2,5}$/i.test(filename)) filename += ".jpg";
-
-  const id = await browser.downloads.download({
-    url: best.url,
-    filename: "TikSave/Originals/" + filename,
-    conflictAction: "uniquify",
-    saveAs: false,
-  });
-
-  result.download_id = id;
-  return result;
 }
 
 async function startContextVideo(tab) {
@@ -326,6 +323,13 @@ function createContextMenus() {
         title: "Abrir esta página en TikSave",
         contexts: ["page", "link", "image", "video", "audio"],
       });
+
+      browser.contextMenus.create({
+        id: "tiksave-open-log",
+        parentId: "tiksave-root",
+        title: "Abrir log de diagnóstico",
+        contexts: ["page", "link", "image", "video", "audio"],
+      });
     }).catch(() => {});
   } catch {}
 }
@@ -341,21 +345,23 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (info.menuItemId === "tiksave-original-open") {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
-      const result = await resolveMaxImage(source);
-      if (!result || !result.best || !result.best.url) {
-        throw new Error("No encontré una versión mayor de esta imagen.");
+      const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
+      const result = await resolveNativeImage(source, pageUrl);
+      if (!result || !result.best || !(result.best.final_url || result.best.url)) {
+        throw new Error("TikSave no encontró una variante de imagen válida.");
       }
-      await browser.tabs.create({ url: result.best.url });
+      await browser.tabs.create({ url: result.best.final_url || result.best.url });
       return;
     }
 
     if (info.menuItemId === "tiksave-original-download") {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
-      const result = await downloadResolvedImage(source);
+      const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
+      const result = await downloadResolvedImage(source, pageUrl);
       await sendToastToActiveTab({
         status: "done",
-        title: (result.best && result.best.filename) || "Imagen original enviada a Descargas",
-        filename: "TikSave/Originals",
+        title: "Imagen guardada",
+        filename: result.path || "TikSave/Originals",
       });
       await showFinishedBadge(true);
       return;
@@ -392,8 +398,22 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
       await browser.tabs.create({
         url: API + "/?url=" + encodeURIComponent(target),
       });
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-open-log") {
+      await api("/api/diagnostics/open-log", {
+        method: "POST",
+        body: "{}",
+      });
+      return;
     }
   } catch (error) {
+    await logExtensionError("context-menu", error, {
+      menuItemId: info && info.menuItemId,
+      pageUrl: tab && tab.url,
+      source: contextSource(info, tab),
+    });
     await sendToastToActiveTab({
       status: "error",
       title: "TikSave",
@@ -627,19 +647,22 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       return contextTargetsByTab.get(message.tabId) || null;
 
     case "getMaxUrlStatus":
-      return api("/api/maxurl/status");
+      return api("/api/image/status");
 
     case "installMaxUrl":
-      return api("/api/maxurl/install", {
+      return api("/api/image/status");
+
+    case "resolveMaxUrl":
+      return resolveNativeImage(message.url, message.pageUrl || null);
+
+    case "downloadMaxUrl":
+      return downloadResolvedImage(message.url, message.pageUrl || null);
+
+    case "openDiagnosticsLog":
+      return api("/api/diagnostics/open-log", {
         method: "POST",
         body: "{}",
       });
-
-    case "resolveMaxUrl":
-      return resolveMaxImage(message.url);
-
-    case "downloadMaxUrl":
-      return downloadResolvedImage(message.url);
 
     case "getCleanMode":
       return { enabled: await getCleanMode() };
