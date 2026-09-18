@@ -34,6 +34,7 @@ function platformLabel(platform) {
     youtube: "YouTube",
     instagram: "Instagram",
     facebook: "Facebook",
+    web: "Video del navegador",
   }[platform] || platform || "Video";
 }
 
