@@ -19,7 +19,7 @@ from app.downloader import (
     clean_error,
     validate_supported_url,
 )
-from app.models import DownloadRequest, InspectRequest
+from app.models import BrowserMediaRequest, DownloadRequest, InspectRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -82,6 +82,19 @@ def start_download(payload: DownloadRequest) -> dict:
             music_metadata=payload.music_metadata,
             subtitle_format=payload.subtitle_format,
             subtitle_languages=payload.subtitle_languages,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/browser-media", status_code=202)
+def start_browser_media(payload: BrowserMediaRequest) -> dict:
+    try:
+        return downloader.enqueue_browser_media(
+            page_url=str(payload.page_url),
+            media_url=str(payload.media_url) if payload.media_url else None,
+            mode=payload.mode,
+            quality=payload.quality,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
