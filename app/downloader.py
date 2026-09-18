@@ -521,6 +521,7 @@ class TikSaveDownloader:
                 mode_options["postprocessors"] = [{
                     "key": "FFmpegSubtitlesConvertor",
                     "format": target,
+                    "when": "before_dl",
                 }]
         else:
             self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
