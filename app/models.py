@@ -55,3 +55,11 @@ class ImageBatchDownloadRequest(BaseModel):
 class NativeImageRequest(BaseModel):
     url: HttpUrl
     page_url: HttpUrl | None = None
+
+
+class DiagnosticEventRequest(BaseModel):
+    component: str = "client"
+    action: str = "event"
+    level: Literal["info", "warning", "error"] = "info"
+    message: str = ""
+    details: dict | None = None
