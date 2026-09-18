@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlparse
 
 from app.dezoom import status as dezoom_status
 from app.downloader import TikSaveDownloader, detect_platform
-from app.maxurl import status as maxurl_status
+from app.native_image import status as native_image_status
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
@@ -309,7 +309,7 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
         "zoom_sources": [],
         "subtitle_tracks": [],
         "engine": {
-            "maxurl": maxurl_status(),
+            "native_image": native_image_status(),
             "dezoomify": dezoom_status(),
         },
     }
@@ -324,7 +324,7 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
                 "id": "image_max",
                 "label": "Buscar original / máxima resolución",
                 "available": True,
-                "needs_install": not bool(result["engine"]["maxurl"].get("installed")),
+                "needs_install": False,
                 "source_url": final_url,
             },
         ]
@@ -378,8 +378,23 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
                 "source": "page",
             })
 
-    images.sort(key=lambda item: int(item.get("score") or 0), reverse=True)
-    images = _dedupe(images, limit=30)
+    def image_rank(item: dict[str, Any]) -> int:
+        value = str(item.get("url") or "").lower()
+        alt = str(item.get("alt") or "").lower()
+        score = int(item.get("score") or 0)
+        if any(token in value or token in alt for token in (
+            "logo", "favicon", "avatar", "profile", "icon", "badge",
+            "google-play", "app-store", "qr", "sprite",
+        )):
+            score -= 700
+        width = int(item.get("width") or 0)
+        height = int(item.get("height") or 0)
+        if width and height and (width < 180 or height < 180):
+            score -= 400
+        return score
+
+    images.sort(key=image_rank, reverse=True)
+    images = [item for item in _dedupe(images, limit=50) if image_rank(item) > -250][:30]
     result["images"] = images
     if images:
         result["thumbnail"] = images[0]["url"]
@@ -438,7 +453,7 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
             "id": "image_max",
             "label": "Buscar original / máxima resolución",
             "available": True,
-            "needs_install": not bool(result["engine"]["maxurl"].get("installed")),
+            "needs_install": False,
             "source_url": images[0]["url"],
         })
 
@@ -457,7 +472,7 @@ def _classify_generic(url: str, final_url: str, content_type: str, body: bytes, 
         result["kind"] = "artwork"
         result["notes"] = [
             "Google Arts & Culture detectado.",
-            "Primero se prueba Image Max URL sobre las imágenes Google/Googleusercontent encontradas; si aparece un descriptor de mosaicos también se ofrece Dezoomify.",
+            "TikSave Native Image prueba variantes de mayor resolución sobre las imágenes Google/Googleusercontent encontradas; si aparece un descriptor de mosaicos también se ofrece Dezoomify.",
         ]
 
     result["capabilities"] = capabilities
@@ -485,7 +500,7 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
         info["host"] = urlparse(url).hostname
         info["kind"] = "media"
         info["engine"] = {
-            "maxurl": maxurl_status(),
+            "native_image": native_image_status(),
             "dezoomify": dezoom_status(),
         }
 
