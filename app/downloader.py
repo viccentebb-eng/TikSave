@@ -156,9 +156,9 @@ def _walk_entries(info: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _subtitle_text(source: Path) -> str:
     raw = source.read_text(encoding="utf-8", errors="replace")
-    lines: list[str] = []
 
     if source.suffix.lower() == ".ass":
+        cues: list[str] = []
         for line in raw.splitlines():
             if not line.startswith("Dialogue:"):
                 continue
@@ -168,22 +168,64 @@ def _subtitle_text(source: Path) -> str:
             value = parts[9].replace(r"\N", " ").replace(r"\n", " ")
             value = re.sub(r"\{[^}]*\}", "", value)
             value = html.unescape(value).strip()
-            if value and (not lines or lines[-1] != value):
-                lines.append(value)
-        return "\n".join(lines).strip() + "\n"
+            if value:
+                cues.append(value)
+    else:
+        blocks = re.split(r"\n\s*\n", raw.replace("\r\n", "\n"))
+        cues = []
 
-    for line in raw.splitlines():
-        value = line.strip()
-        if not value or value == "WEBVTT" or "-->" in value:
-            continue
-        if value.isdigit() or value.startswith(("NOTE", "STYLE", "REGION", "Kind:", "Language:")):
-            continue
-        value = re.sub(r"<[^>]+>", "", value)
-        value = html.unescape(value).strip()
-        if value and (not lines or lines[-1] != value):
-            lines.append(value)
+        for block in blocks:
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
 
-    return "\n".join(lines).strip() + "\n"
+            text_lines: list[str] = []
+            for line in lines:
+                if (
+                    line == "WEBVTT"
+                    or "-->" in line
+                    or line.isdigit()
+                    or line.startswith(("NOTE", "STYLE", "REGION", "Kind:", "Language:"))
+                ):
+                    continue
+
+                value = re.sub(r"<[^>]+>", "", line)
+                value = html.unescape(value)
+                value = re.sub(r"\s+", " ", value).strip()
+
+                if value:
+                    text_lines.append(value)
+
+            if text_lines:
+                cue = re.sub(r"\s+", " ", " ".join(text_lines)).strip()
+                if cue:
+                    cues.append(cue)
+
+    transcript_words: list[str] = []
+
+    for cue in cues:
+        words = cue.split()
+        if not words:
+            continue
+
+        max_overlap = min(len(transcript_words), len(words), 80)
+        overlap = 0
+
+        for size in range(max_overlap, 0, -1):
+            left = [word.casefold() for word in transcript_words[-size:]]
+            right = [word.casefold() for word in words[:size]]
+            if left == right:
+                overlap = size
+                break
+
+        transcript_words.extend(words[overlap:])
+
+    text = " ".join(transcript_words)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(r"([.!?])\s+", r"\1\n\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return text + ("\n" if text else "")
 
 
 @dataclass
