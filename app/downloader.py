@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 import re
 import threading
@@ -12,36 +13,19 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
+from app.music import apply_music_metadata
+
 
 TIKTOK_HOSTS = {
-    "tiktok.com",
-    "www.tiktok.com",
-    "m.tiktok.com",
-    "vm.tiktok.com",
-    "vt.tiktok.com",
+    "tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com",
 }
-
 YOUTUBE_HOSTS = {
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "music.youtube.com",
-    "youtu.be",
-    "www.youtube-nocookie.com",
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+    "youtu.be", "www.youtube-nocookie.com",
 }
-
-INSTAGRAM_HOSTS = {
-    "instagram.com",
-    "www.instagram.com",
-    "m.instagram.com",
-}
-
+INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
 FACEBOOK_HOSTS = {
-    "facebook.com",
-    "www.facebook.com",
-    "m.facebook.com",
-    "mbasic.facebook.com",
-    "fb.watch",
+    "facebook.com", "www.facebook.com", "m.facebook.com", "mbasic.facebook.com", "fb.watch",
 }
 
 DEFAULT_USER_AGENTS = (
@@ -59,9 +43,7 @@ RETRYABLE_TIKTOK_ERRORS = (
 
 
 def detect_platform(value: str) -> str | None:
-    parsed = urlparse(value.strip())
-    host = (parsed.hostname or "").lower()
-
+    host = (urlparse(value.strip()).hostname or "").lower()
     if host in TIKTOK_HOSTS or host.endswith(".tiktok.com"):
         return "tiktok"
     if host in YOUTUBE_HOSTS or host.endswith(".youtube.com"):
@@ -76,13 +58,10 @@ def detect_platform(value: str) -> str | None:
 def validate_supported_url(value: str) -> str:
     value = value.strip()
     parsed = urlparse(value)
-
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("El enlace debe comenzar con http:// o https://")
-
     if not detect_platform(value):
         raise ValueError("Solo se admiten enlaces de TikTok, YouTube, Instagram o Facebook.")
-
     return value
 
 
@@ -95,26 +74,22 @@ def default_download_dir() -> Path:
 
 def browser_user_agents() -> tuple[str, ...]:
     configured = os.getenv("TIKSAVE_USER_AGENT", "").strip()
-    if configured:
-        return (configured, *DEFAULT_USER_AGENTS)
-    return DEFAULT_USER_AGENTS
+    return (configured, *DEFAULT_USER_AGENTS) if configured else DEFAULT_USER_AGENTS
 
 
 def clean_error(value: Exception | str) -> str:
     text = ANSI_RE.sub("", str(value))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def is_retryable_tiktok_error(value: Exception | str) -> bool:
-    text = clean_error(value)
-    return any(marker.lower() in text.lower() for marker in RETRYABLE_TIKTOK_ERRORS)
+    text = clean_error(value).lower()
+    return any(marker.lower() in text for marker in RETRYABLE_TIKTOK_ERRORS)
 
 
 def video_format(quality: str) -> str:
     if quality == "best":
         return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-
     height = int(quality)
     return (
         f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/"
@@ -122,6 +97,92 @@ def video_format(quality: str) -> str:
         f"bv*[height<={height}]+ba/"
         f"b[height<={height}]"
     )
+
+
+def _entry_thumbnail(entry: dict[str, Any]) -> str | None:
+    if entry.get("thumbnail"):
+        return entry["thumbnail"]
+    thumbs = entry.get("thumbnails") or []
+    for thumb in reversed(thumbs):
+        if isinstance(thumb, dict) and thumb.get("url"):
+            return thumb["url"]
+    return None
+
+
+def _entry_summary(entry: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "index": index,
+        "id": entry.get("id"),
+        "title": entry.get("title") or entry.get("description") or f"Elemento {index}",
+        "thumbnail": _entry_thumbnail(entry),
+        "duration": entry.get("duration"),
+        "webpage_url": entry.get("webpage_url") or entry.get("url"),
+    }
+
+
+def _subtitle_tracks(info: dict[str, Any]) -> list[dict[str, Any]]:
+    manual = info.get("subtitles") or {}
+    automatic = info.get("automatic_captions") or {}
+    tracks: list[dict[str, Any]] = []
+
+    for code in sorted(set(manual) | set(automatic)):
+        source = manual.get(code) or automatic.get(code) or []
+        formats = sorted({
+            str(item.get("ext"))
+            for item in source
+            if isinstance(item, dict) and item.get("ext")
+        })
+        name = None
+        for item in source:
+            if isinstance(item, dict) and item.get("name"):
+                name = item["name"]
+                break
+        tracks.append({
+            "code": code,
+            "name": name or code,
+            "automatic": code not in manual,
+            "formats": formats,
+        })
+    return tracks
+
+
+def _walk_entries(info: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = info.get("entries")
+    if entries is None:
+        return [info]
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _subtitle_text(source: Path) -> str:
+    raw = source.read_text(encoding="utf-8", errors="replace")
+    lines: list[str] = []
+
+    if source.suffix.lower() == ".ass":
+        for line in raw.splitlines():
+            if not line.startswith("Dialogue:"):
+                continue
+            parts = line.split(",", 9)
+            if len(parts) < 10:
+                continue
+            value = parts[9].replace(r"\N", " ").replace(r"\n", " ")
+            value = re.sub(r"\{[^}]*\}", "", value)
+            value = html.unescape(value).strip()
+            if value and (not lines or lines[-1] != value):
+                lines.append(value)
+        return "\n".join(lines).strip() + "\n"
+
+    for line in raw.splitlines():
+        value = line.strip()
+        if not value or value == "WEBVTT" or "-->" in value:
+            continue
+        if value.isdigit() or value.startswith(("NOTE", "STYLE", "REGION", "Kind:", "Language:")):
+            continue
+        value = re.sub(r"<[^>]+>", "", value)
+        value = html.unescape(value).strip()
+        if value and (not lines or lines[-1] != value):
+            lines.append(value)
+
+    return "\n".join(lines).strip() + "\n"
 
 
 @dataclass
@@ -132,6 +193,10 @@ class Job:
     platform: str
     quality: str = "best"
     playlist: bool = False
+    selected_items: list[int] | None = None
+    music_metadata: bool = False
+    subtitle_format: str = "srt"
+    subtitle_languages: list[str] | None = None
     status: str = "queued"
     progress: float = 0.0
     speed: str | None = None
@@ -141,6 +206,7 @@ class Job:
     error: str | None = None
     current_index: int | None = None
     total_items: int | None = None
+    metadata_note: str | None = None
 
 
 class JobStore:
@@ -148,22 +214,8 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def create(
-        self,
-        url: str,
-        mode: str,
-        platform: str,
-        quality: str,
-        playlist: bool,
-    ) -> Job:
-        job = Job(
-            id=uuid.uuid4().hex,
-            url=url,
-            mode=mode,
-            platform=platform,
-            quality=quality,
-            playlist=playlist,
-        )
+    def create(self, **kwargs: Any) -> Job:
+        job = Job(id=uuid.uuid4().hex, **kwargs)
         with self._lock:
             self._jobs[job.id] = job
         return job
@@ -204,9 +256,7 @@ class TikSaveDownloader:
 
     @staticmethod
     def _agents_for(platform: str) -> tuple[str, ...]:
-        if platform == "tiktok":
-            return browser_user_agents()
-        return (browser_user_agents()[0],)
+        return browser_user_agents() if platform == "tiktok" else (browser_user_agents()[0],)
 
     def inspect(self, url: str, playlist: bool = False) -> dict[str, Any]:
         url = validate_supported_url(url)
@@ -215,9 +265,8 @@ class TikSaveDownloader:
             raise ValueError("Plataforma no compatible.")
 
         last_error: Exception | None = None
-        agents = self._agents_for(platform)
 
-        for user_agent in agents:
+        for user_agent in self._agents_for(platform):
             opts = {
                 **self._base_options(user_agent, playlist=playlist),
                 "skip_download": True,
@@ -226,24 +275,28 @@ class TikSaveDownloader:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
 
-                entries = info.get("entries") if isinstance(info, dict) else None
-                entry_count = None
-                if entries is not None:
-                    try:
-                        entry_count = len([entry for entry in entries if entry])
-                    except TypeError:
-                        entry_count = None
+                if not info:
+                    raise RuntimeError("No se encontró información del contenido.")
 
+                entries_raw = info.get("entries") if isinstance(info, dict) else None
+                entries = [entry for entry in entries_raw or [] if isinstance(entry, dict)]
+
+                subtitle_source = entries[0] if entries else info
                 return {
                     "id": info.get("id"),
                     "platform": platform,
                     "title": info.get("title") or info.get("description") or platform.title(),
                     "uploader": info.get("uploader") or info.get("creator") or info.get("channel"),
-                    "thumbnail": info.get("thumbnail"),
+                    "thumbnail": info.get("thumbnail") or (entries and _entry_thumbnail(entries[0])),
                     "duration": info.get("duration"),
                     "webpage_url": info.get("webpage_url") or url,
                     "is_playlist": bool(entries),
-                    "entry_count": entry_count,
+                    "entry_count": len(entries) if entries else None,
+                    "entries": [
+                        _entry_summary(entry, index)
+                        for index, entry in enumerate(entries, start=1)
+                    ][:100],
+                    "subtitles": _subtitle_tracks(subtitle_source),
                 }
             except Exception as exc:
                 last_error = exc
@@ -260,18 +313,31 @@ class TikSaveDownloader:
         mode: str,
         quality: str = "best",
         playlist: bool = False,
+        selected_items: list[int] | None = None,
+        music_metadata: bool = False,
+        subtitle_format: str = "srt",
+        subtitle_languages: list[str] | None = None,
     ) -> dict[str, Any]:
         url = validate_supported_url(url)
         platform = detect_platform(url)
         if not platform:
             raise ValueError("Plataforma no compatible.")
 
+        selected = sorted({int(item) for item in selected_items or [] if int(item) > 0}) or None
+
+        if mode == "subtitles" and not subtitle_languages:
+            raise ValueError("Selecciona al menos un idioma de subtítulos.")
+
         job = self.jobs.create(
             url=url,
             mode=mode,
             platform=platform,
             quality=quality,
-            playlist=playlist,
+            playlist=playlist or bool(selected),
+            selected_items=selected,
+            music_metadata=bool(music_metadata),
+            subtitle_format=subtitle_format,
+            subtitle_languages=subtitle_languages,
         )
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
@@ -281,6 +347,81 @@ class TikSaveDownloader:
         if not value:
             return value
         return re.sub(r"\s+", " ", value).strip()[:180]
+
+    def _subtitle_result_files(
+        self,
+        ydl: yt_dlp.YoutubeDL,
+        info: dict[str, Any],
+        target_format: str,
+        languages: list[str],
+    ) -> list[Path]:
+        results: list[Path] = []
+
+        for item in _walk_entries(info):
+            base = Path(ydl.prepare_filename(item)).with_suffix("")
+            patterns: list[str]
+
+            if target_format == "txt":
+                patterns = [
+                    f"{base.name}.*.vtt",
+                    f"{base.name}.*.srt",
+                    f"{base.name}.*.ass",
+                ]
+            else:
+                patterns = [f"{base.name}.*.{target_format}"]
+
+            matches: list[Path] = []
+            for pattern in patterns:
+                matches.extend(base.parent.glob(pattern))
+
+            if target_format == "txt":
+                for source in matches:
+                    target = source.with_suffix(".txt")
+                    target.write_text(_subtitle_text(source), encoding="utf-8")
+                    results.append(target)
+            else:
+                results.extend(matches)
+
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for path in results:
+            key = str(path.resolve())
+            if key not in seen:
+                seen.add(key)
+                unique.append(path)
+        return unique
+
+    def _music_enrich(
+        self,
+        ydl: yt_dlp.YoutubeDL,
+        info: dict[str, Any],
+    ) -> tuple[list[str], str]:
+        files: list[str] = []
+        matched = 0
+        attempted = 0
+        notes: list[str] = []
+
+        for item in _walk_entries(info):
+            prepared = Path(ydl.prepare_filename(item)).with_suffix(".mp3")
+            if not prepared.exists():
+                continue
+
+            attempted += 1
+            result = apply_music_metadata(prepared, item)
+            files.append(str(result.get("path") or prepared))
+
+            if result.get("matched"):
+                matched += 1
+            elif result.get("note"):
+                notes.append(str(result["note"]))
+
+        if not attempted:
+            return files, "No se encontraron MP3 para enriquecer."
+
+        note = f"MusicBrainz: {matched}/{attempted} coincidencia(s) aplicada(s)."
+        if notes and not matched:
+            note += f" {notes[0]}"
+        return files, note
 
     def _download(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
@@ -298,27 +439,24 @@ class TikSaveDownloader:
             item_count = info.get("playlist_count") or info.get("n_entries")
             item_title = info.get("title")
 
-            if item_index is not None:
-                try:
-                    item_index = int(item_index)
-                except (TypeError, ValueError):
-                    item_index = None
-            if item_count is not None:
-                try:
-                    item_count = int(item_count)
-                except (TypeError, ValueError):
-                    item_count = None
+            try:
+                item_index = int(item_index) if item_index is not None else None
+            except (TypeError, ValueError):
+                item_index = None
+            try:
+                item_count = int(item_count) if item_count is not None else None
+            except (TypeError, ValueError):
+                item_count = None
 
             if status == "downloading":
                 total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
                 downloaded = data.get("downloaded_bytes") or 0
                 item_pct = (downloaded / total * 100.0) if total else 0.0
-
-                if playlist and item_index and item_count:
-                    pct = ((item_index - 1) + item_pct / 100.0) / item_count * 100.0
-                else:
-                    pct = item_pct
-
+                pct = (
+                    ((item_index - 1) + item_pct / 100.0) / item_count * 100.0
+                    if playlist and item_index and item_count
+                    else item_pct
+                )
                 self.jobs.update(
                     job_id,
                     status="downloading",
@@ -330,13 +468,12 @@ class TikSaveDownloader:
                     current_index=item_index,
                     total_items=item_count,
                 )
-
             elif status == "finished":
-                if playlist and item_index and item_count:
-                    pct = item_index / item_count * 100.0
-                else:
-                    pct = 100.0
-
+                pct = (
+                    item_index / item_count * 100.0
+                    if playlist and item_index and item_count
+                    else 100.0
+                )
                 self.jobs.update(
                     job_id,
                     status="processing",
@@ -348,44 +485,50 @@ class TikSaveDownloader:
                 )
 
         output_template = str(
-            self.download_dir
-            / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
+            self.download_dir / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
         )
 
         mode = job["mode"]
-        quality = job["quality"]
         mode_options: dict[str, Any] = {}
 
         if mode == "video":
-            mode_options.update(
-                {
-                    "format": video_format(quality),
-                    "merge_output_format": "mp4",
-                }
-            )
+            mode_options.update({
+                "format": video_format(job["quality"]),
+                "merge_output_format": "mp4",
+            })
         elif mode == "mp3":
-            mode_options.update(
-                {
-                    "format": "bestaudio/best",
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "mp3",
-                            "preferredquality": "192",
-                        }
-                    ],
-                }
-            )
+            mode_options.update({
+                "format": "bestaudio/best",
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+            })
         elif mode == "audio":
             mode_options.update({"format": "bestaudio/best"})
+        elif mode == "subtitles":
+            target = job["subtitle_format"]
+            source_format = "vtt/srt/best" if target == "txt" else f"{target}/best"
+            mode_options.update({
+                "skip_download": True,
+                "writesubtitles": True,
+                "writeautomaticsub": True,
+                "subtitleslangs": job["subtitle_languages"],
+                "subtitlesformat": source_format,
+            })
+            if target in {"srt", "vtt", "ass"}:
+                mode_options["postprocessors"] = [{
+                    "key": "FFmpegSubtitlesConvertor",
+                    "format": target,
+                }]
         else:
             self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
             return
 
         last_error: Exception | None = None
-        agents = self._agents_for(platform)
 
-        for attempt, user_agent in enumerate(agents, start=1):
+        for attempt, user_agent in enumerate(self._agents_for(platform), start=1):
             common: dict[str, Any] = {
                 **self._base_options(user_agent, playlist=playlist),
                 **mode_options,
@@ -395,6 +538,9 @@ class TikSaveDownloader:
                 "overwrites": False,
             }
 
+            if job.get("selected_items"):
+                common["playlist_items"] = ",".join(str(item) for item in job["selected_items"])
+
             try:
                 self.jobs.update(
                     job_id,
@@ -403,6 +549,7 @@ class TikSaveDownloader:
                     speed=None,
                     eta=None,
                     error=None,
+                    metadata_note=None,
                 )
 
                 with yt_dlp.YoutubeDL(common) as ydl:
@@ -411,10 +558,38 @@ class TikSaveDownloader:
                     if not info:
                         raise RuntimeError("No se encontró contenido descargable.")
 
-                    entries = info.get("entries") if isinstance(info, dict) else None
-                    if entries is not None:
-                        valid_entries = [entry for entry in entries if entry]
-                        total_items = len(valid_entries)
+                    entries = _walk_entries(info)
+                    final_name: str
+                    metadata_note: str | None = None
+
+                    if mode == "subtitles":
+                        files = self._subtitle_result_files(
+                            ydl,
+                            info,
+                            job["subtitle_format"],
+                            job["subtitle_languages"] or [],
+                        )
+                        if not files:
+                            raise RuntimeError(
+                                "No se generaron archivos de subtítulos para los idiomas seleccionados."
+                            )
+                        final_name = " · ".join(path.name for path in files[:3])
+                        if len(files) > 3:
+                            final_name += f" · +{len(files) - 3} archivo(s)"
+                    elif (
+                        mode == "mp3"
+                        and platform == "youtube"
+                        and job.get("music_metadata")
+                    ):
+                        enriched, metadata_note = self._music_enrich(ydl, info)
+                        if len(enriched) == 1:
+                            final_name = enriched[0]
+                        elif enriched:
+                            final_name = f"{len(enriched)} MP3 · metadatos musicales procesados"
+                        else:
+                            final_name = str(Path(ydl.prepare_filename(info)).with_suffix(".mp3"))
+                    elif info.get("entries") is not None:
+                        total_items = len(entries)
                         final_name = (
                             f"{info.get('title') or 'Lista'} · "
                             f"{total_items} elemento{'s' if total_items != 1 else ''}"
@@ -423,7 +598,6 @@ class TikSaveDownloader:
                         final_name = ydl.prepare_filename(info)
                         if mode == "mp3":
                             final_name = str(Path(final_name).with_suffix(".mp3"))
-                        total_items = None
 
                     self.jobs.update(
                         job_id,
@@ -433,34 +607,27 @@ class TikSaveDownloader:
                         filename=final_name,
                         speed=None,
                         eta=None,
-                        total_items=total_items or job.get("total_items"),
+                        total_items=len(entries) if len(entries) > 1 else job.get("total_items"),
+                        metadata_note=metadata_note,
                     )
                     return
 
             except Exception as exc:
                 last_error = exc
-
                 if (
                     platform != "tiktok"
                     or not is_retryable_tiktok_error(exc)
-                    or attempt >= len(agents)
+                    or attempt >= len(self._agents_for(platform))
                 ):
                     break
-
-                self.jobs.update(
-                    job_id,
-                    status="starting",
-                    progress=0.0,
-                    error=None,
-                )
+                self.jobs.update(job_id, status="starting", progress=0.0, error=None)
 
         error_text = clean_error(last_error or "Error desconocido")
 
         if platform == "tiktok" and is_retryable_tiktok_error(error_text):
             error_text = (
-                "TikTok rechazó temporalmente la petición del extractor incluso después "
-                "de probar varios perfiles de navegador. Vuelve a intentar; si continúa, "
-                "TikTok puede estar aplicando una restricción temporal a esta conexión."
+                "TikTok rechazó temporalmente la petición incluso después de probar "
+                "varios perfiles de navegador."
             )
 
         if platform in {"instagram", "facebook"} and (
