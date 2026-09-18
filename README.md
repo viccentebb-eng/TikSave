@@ -164,6 +164,36 @@ git pull
 .\scripts\run-windows.ps1
 ```
 
+
+
+## Rama experimental 0.9.0
+
+```text
+feature/persistent-guard-douyin-images-notify
+```
+
+Novedades:
+
+- El **Modo limpio** conserva su estado al cambiar de pestaña o reiniciar la extensión.
+- **Bloquear pop-ups siempre** es un ajuste global persistente. Se aplica desde `document_start` en las páginas para que no haya que activarlo pestaña por pestaña.
+- Soporte para videos públicos de **Douyin** mediante el extractor de yt-dlp.
+- Detección de imágenes visibles en **Instagram, Stories, TikTok y Douyin**. El popup muestra cuántas imágenes detectó y puede guardarlas en `Descargas/TikSave/Images/<plataforma>`.
+- Las imágenes se descargan usando la sesión y las URLs que el navegador ya tiene disponibles; TikSave no intenta abrir contenido privado o no autorizado.
+- Al terminar una descarga, TikSave mantiene la notificación del sistema pero también muestra un aviso propio dentro de la pestaña activa y un indicador temporal ✓/! en el icono de la extensión.
+
+Para probarla:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/persistent-guard-douyin-images-notify
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Como esta versión añade el permiso `downloads` y nuevos scripts globales, conviene quitar el complemento temporal anterior de `about:debugging` y volver a cargar `extension/manifest.json`.
+
 ## Licencia
 
 MIT.
