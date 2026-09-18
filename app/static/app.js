@@ -196,7 +196,7 @@ function renderCapabilities(data) {
         data-needs-install="${cap.needs_install ? "1" : "0"}"
       >
         ${escapeHtml(labels[cap.id] || cap.label || cap.id)}
-        ${cap.needs_install ? '<small>requiere instalar motor</small>' : ""}
+        ${cap.needs_install ? '<small>requiere instalar motor</small>' : cap.id === "image_max" ? '<small>motor nativo de TikSave</small>' : ""}
       </button>
     `).join("");
   } else {
@@ -413,20 +413,18 @@ $("capability-buttons").addEventListener("click", async (event) => {
     }
 
     if (action === "image_max") {
-      if (button.dataset.needsInstall === "1") {
-        showMessage("Instalando Image Max URL la primera vez…");
-        await api("/api/maxurl/install", { method: "POST", body: "{}" });
-        button.dataset.needsInstall = "0";
-      }
-
-      showMessage("Buscando la versión original o de mayor resolución…");
-      const result = await api("/api/maxurl/download", {
+      showMessage("TikSave está probando variantes de mayor resolución…");
+      const result = await api("/api/image/download", {
         method: "POST",
         body: JSON.stringify({
           url: sourceUrl || currentInspection.images?.[0]?.url || urls[0],
+          page_url: urls[0],
         }),
       });
-      showMessage(`Imagen original guardada: ${result.path}`, "ok");
+      const resolution = result.resolution?.filter(Boolean).length === 2
+        ? ` · ${result.resolution[0]}×${result.resolution[1]}`
+        : "";
+      showMessage(`Imagen guardada: ${result.path}${resolution}`, "ok");
       return;
     }
 
@@ -776,6 +774,15 @@ $("open-folder").addEventListener("click", async () => {
   clearMessage();
   try {
     await api("/api/open-folder", { method: "POST", body: "{}" });
+  } catch (err) {
+    showMessage(err.message, "error");
+  }
+});
+
+$("open-log").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/diagnostics/open-log", { method: "POST", body: "{}" });
+    showMessage(`Log abierto: ${result.path}`, "ok");
   } catch (err) {
     showMessage(err.message, "error");
   }
