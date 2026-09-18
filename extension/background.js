@@ -372,13 +372,23 @@ async function openOriginalImage(source, pageUrl = null, tabId = null) {
 
     return { url: target, fast: Boolean(fast), result };
   } catch (error) {
-    if (!fast && shown) {
-      await updateImageOverlay(
-        tabId,
-        source,
-        "No encontré una variante mayor; mostrando la imagen disponible.",
-      );
+    await logExtensionError("image-original-resolve", error, {
+      source,
+      pageUrl,
+      fast: Boolean(fast),
+    });
+
+    if (shown) {
+      if (!fast) {
+        await updateImageOverlay(
+          tabId,
+          source,
+          "No encontré una variante mayor; mostrando la imagen disponible.",
+        );
+      }
+      return { url: initial, fast: Boolean(fast), fallback: true };
     }
+
     throw error;
   }
 }
