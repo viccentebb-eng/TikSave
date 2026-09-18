@@ -22,7 +22,7 @@
       <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea"></textarea>
 
       <div class="controls controls-wide">
-        <div id="quality-control" class="control">
+        <div id="quality-control" class="control hidden">
           <label for="quality">Resolución de video</label>
           <select id="quality">
             <option value="best">Mejor disponible</option>
@@ -35,7 +35,7 @@
           </select>
         </div>
 
-        <label id="playlist-control" class="check-control">
+        <label id="playlist-control" class="check-control hidden">
           <input id="playlist" type="checkbox">
           <span>
             <strong>Descargar lista o canal completo</strong>
@@ -43,7 +43,7 @@
           </span>
         </label>
 
-        <label id="music-control" class="check-control">
+        <label id="music-control" class="check-control hidden">
           <input id="music-metadata" type="checkbox">
           <span>
             <strong>Completar datos de la canción</strong>
