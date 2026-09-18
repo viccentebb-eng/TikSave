@@ -595,6 +595,44 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
                     result["notes"].append(
                         "Si es una Story o contenido que requiere sesión, abre el contenido en Firefox y usa la extensión de TikSave para aprovechar tu sesión ya iniciada."
                     )
+
+                    useful_images = []
+                    for item in result.get("images") or []:
+                        value = str(item.get("url") or "").lower()
+                        alt = str(item.get("alt") or "").lower()
+                        if not re.search(r"(fbcdn\.net|cdninstagram\.com|scontent)", value):
+                            continue
+                        if re.search(r"(logo|instagram icon|profile|avatar|sprite|app-store|google-play|qr)", f"{value} {alt}"):
+                            continue
+                        useful_images.append(item)
+
+                    title_lower = str(result.get("title") or "").strip().lower()
+                    shell_like = (
+                        title_lower in {"instagram", "login • instagram", "instagram • login"}
+                        or len(useful_images) == 0
+                    )
+
+                    if shell_like:
+                        result["images"] = []
+                        result["thumbnail"] = None
+                        result["kind"] = "session_required"
+                        result["capabilities"] = [
+                            cap
+                            for cap in (result.get("capabilities") or [])
+                            if cap.get("id") not in {"images", "image_max"}
+                        ]
+                        result["notes"].append(
+                            "La página que recibió el backend es la carcasa/login de Instagram, no las fotos reales del post. La extensión de Firefox puede escanear el carrusel desde tu sesión."
+                        )
+                    else:
+                        result["images"] = useful_images[:20]
+                        result["thumbnail"] = useful_images[0]["url"]
+                        for cap in result.get("capabilities") or []:
+                            if cap.get("id") == "images":
+                                cap["label"] = f"Descargar imágenes ({len(result['images'])})"
+                            elif cap.get("id") == "image_max":
+                                cap["source_url"] = result["images"][0]["url"]
+
                 result["cached"] = False
                 return _cache_put(url, playlist, result)
             except Exception:
