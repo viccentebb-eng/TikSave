@@ -52,6 +52,7 @@ def health() -> dict:
         "download_dir": str(downloader.download_dir),
         "platforms": ["tiktok", "youtube", "instagram", "facebook"],
         "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
+        "subtitle_formats": ["srt", "vtt", "txt", "ass"],
     }
 
 
@@ -77,6 +78,10 @@ def start_download(payload: DownloadRequest) -> dict:
             payload.mode,
             quality=payload.quality,
             playlist=payload.playlist,
+            selected_items=payload.selected_items,
+            music_metadata=payload.music_metadata,
+            subtitle_format=payload.subtitle_format,
+            subtitle_languages=payload.subtitle_languages,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
