@@ -12,5 +12,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m compileall -q app
-      - run: python -m json.tool extension/manifest.json > /dev/null
+      - name: Validate Python
+        run: python -m compileall -q app
+      - name: Validate extension manifest
+        run: python -m json.tool extension/manifest.json > /dev/null
+      - name: Validate web JavaScript
+        run: node --check app/static/app.js
+      - name: Validate extension JavaScript
+        run: node --check extension/popup.js
