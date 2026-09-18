@@ -22,3 +22,10 @@ class DownloadRequest(BaseModel):
     music_metadata: bool = False
     subtitle_format: SubtitleFormat = "srt"
     subtitle_languages: list[str] | None = None
+
+
+class BrowserMediaRequest(BaseModel):
+    page_url: HttpUrl
+    media_url: HttpUrl | None = None
+    mode: Literal["video", "mp3", "audio"] = "video"
+    quality: VideoQuality = "best"
