@@ -97,6 +97,35 @@ TikSave está diseñado para contenido público o contenido que tengas derecho a
 
 Instagram y Facebook pueden exigir sesión para determinados enlaces. Esta rama sigue usando acceso público y no extrae cookies del navegador.
 
+
+
+## Rama experimental 0.7.0
+
+```text
+feature/clips-hls-popup-guard
+```
+
+Novedades:
+
+- Descarga de un fragmento por tiempo.
+- Desde la extensión de Firefox puedes marcar inicio y final usando el tiempo actual del reproductor.
+- Opción de recorte más exacto; usa reencodificación alrededor de los cortes y puede tardar más.
+- Mejor detección de reproductores HLS/DASH y reproductores incrustados en páginas no compatibles.
+- Modo opcional para bloquear ventanas emergentes programáticas en la pestaña actual hasta recargar.
+- Botón de prueba para diagnosticar notificaciones de Firefox.
+- Corrección del icono SVG usado por las notificaciones.
+
+Para probarla:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/clips-hls-popup-guard
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
 ## Licencia
 
 MIT.
