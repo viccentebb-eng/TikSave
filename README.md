@@ -2,103 +2,100 @@
 
 Aplicación local y extensión de Firefox para guardar contenido público de TikTok, YouTube, Instagram y Facebook sin depender de páginas con publicidad.
 
-## Funciones
+## Funciones principales
 
-- TikTok: videos públicos, enlaces móviles y enlaces cortos.
-- YouTube: videos normales, `youtu.be`, Shorts y playlists.
-- Instagram: Reels y publicaciones públicas compatibles con yt-dlp.
-- Facebook: videos, Reels y enlaces públicos compatibles con yt-dlp.
-- Varias URLs en un mismo lote: una por línea.
-- Las descargas de un lote son independientes: si una falla, las demás continúan.
-- Playlists / colecciones opcionales.
-- Resolución máxima seleccionable:
-  - Mejor disponible
-  - 2160p / 4K
-  - 1440p
-  - 1080p
-  - 720p
-  - 480p
-  - 360p
-- Descarga de video MP4.
-- Extracción a MP3 mediante FFmpeg.
-- Descarga del mejor audio disponible sin convertir.
-- Vista previa con título, canal/autor, plataforma y datos de playlist.
+- TikTok, YouTube, Instagram y Facebook.
+- Varias URLs en un mismo lote, una por línea.
+- Playlists y colecciones.
+- Resolución máxima: mejor disponible, 2160p, 1440p, 1080p, 720p, 480p y 360p.
+- Video MP4, MP3 y audio original.
 - Barra de progreso independiente por enlace.
-- Progreso agregado para playlists cuando la plataforma informa el número de elementos.
-- Guarda por defecto en `Descargas/TikSave`.
-- Extensión de Firefox para enviar la pestaña actual a TikSave.
-- Todo corre en `127.0.0.1`; TikSave no usa un servidor externo propio.
+- Carpeta predeterminada: `Descargas/TikSave`.
+- Extensión temporal de Firefox.
+- Todo corre en `127.0.0.1`.
 
-## Rama experimental 0.3.0
+## Novedades 0.4.0
 
-La rama con Facebook, Instagram, lotes, playlists y resoluciones es:
+### Carruseles de Instagram
 
-```text
-feature/multiplatform-batch-quality
-```
+Cuando TikSave detecta una publicación con varios elementos:
 
-Para probarla en Windows:
+- muestra cada elemento con su miniatura;
+- selecciona todos inicialmente;
+- permite desmarcar los que no quieras;
+- envía únicamente los índices seleccionados a yt-dlp.
+
+La misma selección puede funcionar con otros extractores que expongan el contenido como una colección de entradas.
+
+### Metadatos musicales para MP3 de YouTube
+
+La casilla **Corregir música con MusicBrainz** se aplica al descargar MP3 de YouTube.
+
+TikSave intenta:
+
+1. interpretar artista y canción usando los metadatos de YouTube/YouTube Music y el título;
+2. consultar MusicBrainz;
+3. aceptar la coincidencia solo cuando supera un umbral de confianza;
+4. corregir etiquetas ID3 de título, artista, álbum y fecha;
+5. buscar la carátula frontal en Cover Art Archive;
+6. incrustar la carátula en el MP3;
+7. renombrar el archivo como `Artista - Canción.mp3`.
+
+Si no existe una coincidencia suficientemente confiable, conserva el archivo original en lugar de inventar metadatos.
+
+MusicBrainz se consulta con identificación de aplicación y límite de aproximadamente una petición por segundo.
+
+### Subtítulos
+
+Después de analizar un enlace, si el extractor ofrece subtítulos, TikSave muestra:
+
+- idioma;
+- código del idioma;
+- si es subtítulo normal o automático;
+- formatos encontrados.
+
+Formatos de salida disponibles:
+
+- SRT
+- VTT
+- TXT (transcripción limpia sin marcas de tiempo)
+- ASS
+
+La descarga usa subtítulos normales y, cuando estén disponibles, subtítulos automáticos de yt-dlp.
+
+## Probar la rama 0.4.0
 
 ```powershell
 cd D:\PROYECTOS\TikSave
 git fetch origin
-git switch feature/multiplatform-batch-quality
+git switch feature/carousel-metadata-subtitles
 git pull
 .\scripts\install-windows.ps1
 .\scripts\run-windows.ps1
 ```
 
-Para volver a la rama anterior de TikTok + YouTube:
+Para regresar a la 0.3.0:
 
 ```powershell
-git switch feature/youtube-support
+git switch feature/multiplatform-batch-quality
 git pull
 ```
-
-## Uso por lotes
-
-Pega una URL por línea:
-
-```text
-https://www.youtube.com/watch?v=...
-https://www.instagram.com/reel/...
-https://www.facebook.com/reel/...
-https://www.tiktok.com/@usuario/video/...
-```
-
-Elige la resolución y pulsa MP4, MP3 o Audio original. TikSave crea un trabajo independiente para cada URL.
-
-## Playlists
-
-Activa **Permitir listas / colecciones** cuando quieras que una URL de playlist se procese completa. Si está desactivado, TikSave intenta tratar la URL como un elemento individual.
-
-Las playlists pueden contener elementos eliminados, privados, geobloqueados o no disponibles. TikSave intenta continuar con los elementos que sí sean accesibles.
 
 ## Extensión temporal de Firefox
 
 1. Inicia TikSave Local.
-2. En Firefox abre `about:debugging`.
+2. Abre `about:debugging`.
 3. Entra a **Este Firefox**.
 4. Pulsa **Cargar complemento temporal**.
 5. Selecciona `extension/manifest.json`.
-6. Abre contenido compatible y pulsa el icono de TikSave.
 
-La extensión descarga un elemento por vez. Para lotes y playlists usa la interfaz local.
-
-## Desarrollo manual
-
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade -r requirements.txt
-python -m app.main
-```
+La selección de carruseles, enriquecimiento musical y gestor de subtítulos se realizan desde la interfaz local.
 
 ## Seguridad y alcance
 
-TikSave está diseñado para contenido público o contenido que el usuario tenga derecho a guardar. No incorpora mecanismos para evitar DRM, contenido privado, contenido de pago ni controles de acceso.
+TikSave está diseñado para contenido público o contenido que tengas derecho a guardar. No incorpora mecanismos para evitar DRM, contenido privado, contenido de pago ni controles de acceso.
 
-Instagram y Facebook pueden exigir inicio de sesión para determinados enlaces aunque el contenido parezca público. Esta versión no reutiliza cookies de tu navegador; si la plataforma exige autenticación, TikSave mostrará el fallo en lugar de intentar saltarlo.
+Instagram y Facebook pueden exigir sesión para determinados enlaces. Esta rama sigue usando acceso público y no extrae cookies del navegador.
 
 ## Licencia
 
