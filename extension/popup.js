@@ -7,6 +7,7 @@ let pollTimer = null;
 let browserMedia = null;
 let popupGuardEnabled = false;
 let cleanModeEnabled = false;
+let detectedImages = [];
 
 function supportedUrl(url) {
   try {
@@ -14,6 +15,9 @@ function supportedUrl(url) {
     return (
       host === "tiktok.com" ||
       host.endsWith(".tiktok.com") ||
+      host === "douyin.com" ||
+      host.endsWith(".douyin.com") ||
+      host.endsWith(".iesdouyin.com") ||
       host === "youtube.com" ||
       host.endsWith(".youtube.com") ||
       host === "youtu.be" ||
@@ -261,6 +265,113 @@ async function detectPlayingMedia(tabId) {
   }
 }
 
+async function detectPageImages(tabId) {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        function candidateFromImage(img) {
+          const rect = img.getBoundingClientRect();
+          const visible =
+            rect.width >= 140 &&
+            rect.height >= 140 &&
+            rect.bottom > 0 &&
+            rect.right > 0 &&
+            rect.top < innerHeight &&
+            rect.left < innerWidth;
+
+          if (!visible) return null;
+
+          const url = img.currentSrc || img.src || "";
+          if (!/^https?:\/\//i.test(url)) return null;
+
+          const area = rect.width * rect.height;
+          const naturalArea = (img.naturalWidth || 0) * (img.naturalHeight || 0);
+          const inContent = Boolean(img.closest("article, main, [role='dialog']"));
+          const score = area + Math.min(naturalArea / 8, 300000) + (inContent ? 250000 : 0);
+
+          return {
+            url,
+            score,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            alt: img.alt || "",
+          };
+        }
+
+        const images = [...document.images]
+          .map(candidateFromImage)
+          .filter(Boolean);
+
+        const metaUrls = [
+          document.querySelector('meta[property="og:image"]')?.content,
+          document.querySelector('meta[name="twitter:image"]')?.content,
+        ].filter((url) => /^https?:\/\//i.test(url || ""));
+
+        for (const url of metaUrls) {
+          images.push({
+            url,
+            score: 350000,
+            width: 0,
+            height: 0,
+            alt: "",
+          });
+        }
+
+        return images
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 30);
+      },
+    });
+
+    const merged = new Map();
+
+    for (const frame of results) {
+      for (const item of frame.result || []) {
+        const existing = merged.get(item.url);
+        if (!existing || item.score > existing.score) {
+          merged.set(item.url, item);
+        }
+      }
+    }
+
+    return [...merged.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+function currentPlatform() {
+  try {
+    const host = new URL(currentUrl).hostname.toLowerCase();
+
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "TikTok";
+    if (host === "douyin.com" || host.endsWith(".douyin.com") || host.endsWith(".iesdouyin.com")) return "Douyin";
+    if (host === "instagram.com" || host.endsWith(".instagram.com")) return "Instagram";
+    if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return "YouTube";
+    if (host === "facebook.com" || host.endsWith(".facebook.com") || host === "fb.watch") return "Facebook";
+  } catch {}
+
+  return "web";
+}
+
+function renderImages(images) {
+  detectedImages = images || [];
+  const card = $("image-card");
+
+  if (!detectedImages.length) {
+    card.classList.add("hidden");
+    return;
+  }
+
+  card.classList.remove("hidden");
+  $("image-title").textContent = `${detectedImages.length} imagen${detectedImages.length === 1 ? "" : "es"} detectada${detectedImages.length === 1 ? "" : "s"}`;
+  $("image-info").textContent =
+    "Puedes guardar las imágenes visibles de esta publicación, carrusel o Story.";
+}
+
 async function currentPlaybackTime() {
   if (!currentTab?.id) return null;
   const media = await detectPlayingMedia(currentTab.id);
@@ -457,78 +568,20 @@ async function startBrowserMedia() {
 }
 
 async function setPopupGuard(enabled) {
-  if (!currentTab?.id) return false;
+  const result = await send({
+    type: "setPopupGuard",
+    enabled: Boolean(enabled),
+  });
 
-  try {
-    const results = await browser.scripting.executeScript({
-      target: { tabId: currentTab.id, allFrames: true },
-      world: "MAIN",
-      args: [enabled],
-      func: (turnOn) => {
-        const KEY = "__tiksavePopupGuard";
-
-        if (!turnOn) {
-          const state = window[KEY];
-          if (state) {
-            try {
-              window.open = state.originalOpen;
-              HTMLAnchorElement.prototype.click = state.originalAnchorClick;
-            } catch {}
-            delete window[KEY];
-          }
-          return false;
-        }
-
-        if (window[KEY]) return true;
-
-        const originalOpen = window.open;
-        const originalAnchorClick = HTMLAnchorElement.prototype.click;
-
-        window.open = function () {
-          return null;
-        };
-
-        HTMLAnchorElement.prototype.click = function (...args) {
-          try {
-            const href = this.href && new URL(this.href, location.href);
-            if (
-              href &&
-              this.target === "_blank" &&
-              href.origin !== location.origin
-            ) {
-              return;
-            }
-          } catch {}
-
-          return originalAnchorClick.apply(this, args);
-        };
-
-        window[KEY] = {
-          originalOpen,
-          originalAnchorClick,
-        };
-
-        return true;
-      },
-    });
-
-    return results.some((item) => item.result === enabled);
-  } catch {
-    return false;
-  }
+  popupGuardEnabled = Boolean(result?.enabled);
+  $("popup-guard").textContent = popupGuardEnabled ? "Desactivar" : "Activar";
+  return popupGuardEnabled;
 }
 
 async function refreshPopupGuardState() {
-  if (!currentTab?.id) return;
-
   try {
-    const results = await browser.scripting.executeScript({
-      target: { tabId: currentTab.id, allFrames: true },
-      world: "MAIN",
-      func: () => Boolean(window.__tiksavePopupGuard),
-    });
-
-    popupGuardEnabled = results.some((item) => item.result === true);
+    const result = await send({ type: "getPopupGuard" });
+    popupGuardEnabled = Boolean(result?.enabled);
   } catch {
     popupGuardEnabled = false;
   }
@@ -586,22 +639,17 @@ $("mark-end").addEventListener("click", async () => {
 });
 
 $("popup-guard").addEventListener("click", async () => {
-  const target = !popupGuardEnabled;
-  const changed = await setPopupGuard(target);
-
-  if (!changed && target) {
-    say("Firefox no permitió activar el bloqueo en esta página.", "error");
-    return;
+  try {
+    const enabled = await setPopupGuard(!popupGuardEnabled);
+    say(
+      enabled
+        ? "Bloqueo global de pop-ups activado. Seguirá activo en nuevas pestañas."
+        : "Bloqueo global de pop-ups desactivado.",
+      "ok",
+    );
+  } catch (error) {
+    say(error?.message || "No se pudo cambiar el bloqueo de pop-ups.", "error");
   }
-
-  popupGuardEnabled = target;
-  $("popup-guard").textContent = popupGuardEnabled ? "Desactivar" : "Activar";
-  say(
-    popupGuardEnabled
-      ? "Ventanas emergentes programáticas bloqueadas hasta recargar la pestaña."
-      : "Bloqueo de ventanas emergentes desactivado.",
-    "ok",
-  );
 });
 
 $("clean-mode").addEventListener("click", async () => {
@@ -647,7 +695,9 @@ $("test-notification").addEventListener("click", async () => {
 
     if (result?.ok) {
       say(
-        "Firefox aceptó la notificación. Si no aparece en Windows, revisa los permisos de notificaciones de Firefox.",
+        result?.toast
+          ? "TikSave mostró el aviso dentro de la pestaña. La notificación del sistema depende de Firefox y Windows."
+          : "Firefox aceptó la notificación del sistema, pero no pude mostrar el aviso dentro de esta pestaña.",
         "ok",
       );
     } else {
@@ -658,6 +708,31 @@ $("test-notification").addEventListener("click", async () => {
     }
   } catch (error) {
     say(error?.message || "No se pudo probar la notificación.", "error");
+  }
+});
+
+$("download-images").addEventListener("click", async () => {
+  if (!detectedImages.length) {
+    say("No hay imágenes detectadas para guardar.", "error");
+    return;
+  }
+
+  try {
+    const result = await send({
+      type: "downloadImages",
+      payload: {
+        images: detectedImages.map((item) => item.url),
+        platform: currentPlatform(),
+        page_url: currentUrl,
+      },
+    });
+
+    say(
+      `${result?.count || 0} imagen${result?.count === 1 ? "" : "es"} enviada${result?.count === 1 ? "" : "s"} a Descargas/TikSave/Images.`,
+      "ok",
+    );
+  } catch (error) {
+    say(error?.message || "No se pudieron descargar las imágenes.", "error");
   }
 });
 
@@ -705,6 +780,18 @@ async function init() {
     renderBrowserMedia(await detectPlayingMedia(currentTab.id));
   } else {
     $("browser-media").classList.add("hidden");
+  }
+
+  if (currentTab?.id) {
+    const platform = currentPlatform();
+    if (["Instagram", "TikTok", "Douyin"].includes(platform)) {
+      renderImages(await detectPageImages(currentTab.id));
+      setTimeout(async () => {
+        renderImages(await detectPageImages(currentTab.id));
+      }, 1400);
+    } else {
+      $("image-card").classList.add("hidden");
+    }
   }
 
   try {
