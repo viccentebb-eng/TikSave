@@ -12,21 +12,44 @@
     <section class="hero">
       <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
       <h1>TikSave</h1>
-      <p>Guarda video o audio de TikTok y YouTube directamente en tu computadora.</p>
+      <p>TikTok, YouTube, Instagram y Facebook. Video, audio, lotes y listas.</p>
     </section>
 
     <section class="card">
-      <label for="url">Enlace de TikTok o YouTube</label>
-      <div class="url-row">
-        <input id="url" type="url" placeholder="https://www.tiktok.com/... o https://youtu.be/..." autocomplete="off" spellcheck="false">
-        <button id="inspect" class="secondary">Vista previa</button>
+      <label for="urls">Enlaces</label>
+      <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea&#10;https://www.youtube.com/watch?v=...&#10;https://www.instagram.com/reel/...&#10;https://www.facebook.com/reel/..."></textarea>
+
+      <div class="controls">
+        <div class="control">
+          <label for="quality">Resolución de video</label>
+          <select id="quality">
+            <option value="best">Mejor disponible</option>
+            <option value="2160">2160p / 4K</option>
+            <option value="1440">1440p</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+        </div>
+
+        <label class="check-control">
+          <input id="playlist" type="checkbox">
+          <span>
+            <strong>Permitir listas / colecciones</strong>
+            <small>Si el enlace contiene una playlist, descarga todos sus elementos.</small>
+          </span>
+        </label>
+
+        <button id="inspect" class="secondary preview-button">Vista previa del primer enlace</button>
       </div>
 
       <div id="preview" class="preview hidden">
-        <img id="thumb" alt="Miniatura del video">
+        <img id="thumb" alt="Miniatura del contenido">
         <div>
           <strong id="title"></strong>
           <span id="uploader"></span>
+          <span id="playlist-info"></span>
         </div>
       </div>
 
@@ -36,24 +59,17 @@
         <button data-mode="audio">Audio original</button>
       </div>
 
-      <div id="job" class="job hidden">
-        <div class="job-head">
-          <span id="status">Preparando…</span>
-          <span id="percent">0%</span>
-        </div>
-        <div class="track"><div id="bar" class="bar"></div></div>
-        <div id="details" class="details"></div>
-      </div>
-
       <div id="message" class="message hidden"></div>
+      <div id="jobs" class="jobs hidden"></div>
 
       <div class="footer-actions">
-        <button id="paste" class="ghost">Pegar enlace</button>
+        <button id="paste" class="ghost">Pegar enlaces</button>
+        <button id="clear" class="ghost">Limpiar lista</button>
         <button id="open-folder" class="ghost">Abrir carpeta de descargas</button>
       </div>
     </section>
 
-    <p class="legal">Úsalo únicamente con contenido público que tengas derecho a guardar. TikSave no inicia sesión ni evita contenido privado, de pago o protegido.</p>
+    <p class="legal">Úsalo únicamente con contenido que tengas derecho a guardar. TikSave no evita DRM, contenido privado, de pago ni restricciones de acceso.</p>
   </main>
   <script src="/static/app.js" defer></script>
 </body>
