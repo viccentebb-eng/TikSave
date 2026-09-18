@@ -126,6 +126,44 @@ git pull
 .\scripts\run-windows.ps1
 ```
 
+
+
+## Rama experimental 0.8.0
+
+```text
+feature/full-browser-clean-mode
+```
+
+La extensión solicita acceso amplio a sitios web para mejorar dos funciones:
+
+- detectar solicitudes HLS/DASH cargadas dentro de reproductores e iframes;
+- ofrecer herramientas de navegación limpia.
+
+### Modo limpio
+
+El **Modo limpio** usa reglas locales de Firefox para bloquear algunas redes publicitarias y trackers comunes. No envía el historial ni las páginas visitadas a un servidor de TikSave.
+
+Se puede activar y desactivar desde el popup de la extensión.
+
+### Modo lectura
+
+Cuando Firefox reconoce la pestaña como un artículo, TikSave puede abrir el **Modo lectura** nativo del navegador. Esta función elimina elementos secundarios como anuncios y barras laterales de una página cuyo contenido ya está disponible. No desbloquea artículos de suscripción ni contenido restringido.
+
+### Detección de streams
+
+La extensión observa solicitudes de red de tipo multimedia para identificar manifiestos `.m3u8` (HLS) y `.mpd` (DASH) que la pestaña ya haya cargado. TikSave no intenta resolver DRM, CAPTCHA, Cloudflare ni otros controles de acceso.
+
+Para probarla:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/full-browser-clean-mode
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
 ## Licencia
 
 MIT.
