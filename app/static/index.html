@@ -12,14 +12,14 @@
     <section class="hero">
       <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
       <h1>TikSave</h1>
-      <p>TikTok, YouTube, Instagram y Facebook. Video, audio, lotes y listas.</p>
+      <p>TikTok, YouTube, Instagram y Facebook. Video, audio, carruseles, música y subtítulos.</p>
     </section>
 
     <section class="card">
       <label for="urls">Enlaces</label>
-      <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea&#10;https://www.youtube.com/watch?v=...&#10;https://www.instagram.com/reel/...&#10;https://www.facebook.com/reel/..."></textarea>
+      <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea"></textarea>
 
-      <div class="controls">
+      <div class="controls controls-wide">
         <div class="control">
           <label for="quality">Resolución de video</label>
           <select id="quality">
@@ -37,11 +37,19 @@
           <input id="playlist" type="checkbox">
           <span>
             <strong>Permitir listas / colecciones</strong>
-            <small>Si el enlace contiene una playlist, descarga todos sus elementos.</small>
+            <small>Procesa una playlist completa cuando la URL la contiene.</small>
           </span>
         </label>
 
-        <button id="inspect" class="secondary preview-button">Vista previa del primer enlace</button>
+        <label class="check-control">
+          <input id="music-metadata" type="checkbox">
+          <span>
+            <strong>Corregir música con MusicBrainz</strong>
+            <small>Para MP3 de YouTube: título, artista, álbum, carátula y nombre del archivo.</small>
+          </span>
+        </label>
+
+        <button id="inspect" class="secondary preview-button">Analizar primer enlace</button>
       </div>
 
       <div id="preview" class="preview hidden">
@@ -53,11 +61,53 @@
         </div>
       </div>
 
+      <section id="carousel-panel" class="subcard hidden">
+        <div class="subcard-head">
+          <div>
+            <strong id="carousel-title">Elementos de la publicación</strong>
+            <span id="carousel-help">Todos están seleccionados. Desmarca los que no quieras.</span>
+          </div>
+          <div class="inline-actions">
+            <button id="select-all-items" class="ghost small-button">Todos</button>
+            <button id="select-no-items" class="ghost small-button">Ninguno</button>
+          </div>
+        </div>
+        <div id="carousel-grid" class="media-grid"></div>
+      </section>
+
       <div class="actions">
         <button data-mode="video" class="primary">Descargar MP4</button>
         <button data-mode="mp3">Descargar MP3</button>
         <button data-mode="audio">Audio original</button>
       </div>
+
+      <section id="subtitle-panel" class="subcard hidden">
+        <div class="subcard-head">
+          <div>
+            <strong>Subtítulos</strong>
+            <span>Elige idioma y formato. Incluye subtítulos normales y automáticos cuando existan.</span>
+          </div>
+        </div>
+
+        <div class="subtitle-tools">
+          <div class="control">
+            <label for="subtitle-format">Formato</label>
+            <select id="subtitle-format">
+              <option value="srt">SRT</option>
+              <option value="vtt">VTT</option>
+              <option value="txt">TXT / transcripción</option>
+              <option value="ass">ASS</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="subtitle-search">Filtrar idiomas</label>
+            <input id="subtitle-search" type="search" placeholder="es, Español, en, English…">
+          </div>
+          <button id="download-subtitles" class="secondary">Descargar subtítulos</button>
+        </div>
+
+        <div id="subtitle-tracks" class="subtitle-tracks"></div>
+      </section>
 
       <div id="message" class="message hidden"></div>
       <div id="jobs" class="jobs hidden"></div>
