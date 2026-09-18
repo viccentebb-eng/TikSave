@@ -14,7 +14,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.downloader import TikSaveDownloader, validate_tiktok_url
+from app.downloader import (
+    TikSaveDownloader,
+    clean_error,
+    validate_supported_url,
+)
 from app.models import DownloadRequest, InspectRequest
 
 
@@ -46,23 +50,27 @@ def health() -> dict:
         "name": "TikSave Local",
         "version": __version__,
         "download_dir": str(downloader.download_dir),
+        "platforms": ["tiktok", "youtube"],
     }
 
 
 @app.post("/api/inspect")
-def inspect_tiktok(payload: InspectRequest) -> dict:
+def inspect_media(payload: InspectRequest) -> dict:
     try:
         return downloader.inspect(str(payload.url))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"TikTok no pudo analizarse: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo analizar el enlace: {clean_error(exc)}",
+        ) from exc
 
 
 @app.post("/api/download", status_code=202)
 def start_download(payload: DownloadRequest) -> dict:
     try:
-        validate_tiktok_url(str(payload.url))
+        validate_supported_url(str(payload.url))
         return downloader.enqueue(str(payload.url), payload.mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
