@@ -22,7 +22,7 @@
       <textarea id="urls" rows="5" placeholder="Pega uno o varios enlaces, uno por línea"></textarea>
 
       <div class="controls controls-wide">
-        <div class="control">
+        <div id="quality-control" class="control">
           <label for="quality">Resolución de video</label>
           <select id="quality">
             <option value="best">Mejor disponible</option>
@@ -35,7 +35,7 @@
           </select>
         </div>
 
-        <label class="check-control">
+        <label id="playlist-control" class="check-control">
           <input id="playlist" type="checkbox">
           <span>
             <strong>Descargar lista o canal completo</strong>
@@ -43,7 +43,7 @@
           </span>
         </label>
 
-        <label class="check-control">
+        <label id="music-control" class="check-control">
           <input id="music-metadata" type="checkbox">
           <span>
             <strong>Completar datos de la canción</strong>
@@ -51,7 +51,7 @@
           </span>
         </label>
 
-        <button id="inspect" class="secondary preview-button">Ver contenido</button>
+        <button id="inspect" class="secondary preview-button">Analizar contenido</button>
       </div>
 
       <div id="preview" class="preview hidden">
@@ -77,11 +77,37 @@
         <div id="carousel-grid" class="media-grid"></div>
       </section>
 
-      <div class="actions">
+      <section id="capabilities-panel" class="subcard hidden">
+        <div class="subcard-head">
+          <div>
+            <strong>Opciones disponibles</strong>
+            <span id="capabilities-help">TikSave detectó qué puede guardar de este enlace.</span>
+          </div>
+        </div>
+        <div id="capability-buttons" class="capability-buttons"></div>
+        <div id="analysis-notes" class="analysis-notes hidden"></div>
+      </section>
+
+      <div id="media-actions" class="actions hidden">
         <button data-mode="video" class="primary">Descargar MP4</button>
         <button data-mode="mp3">Descargar MP3</button>
         <button data-mode="audio">Solo audio</button>
       </div>
+
+      <section id="page-images-panel" class="subcard hidden">
+        <div class="subcard-head">
+          <div>
+            <strong id="page-images-title">Imágenes encontradas</strong>
+            <span>Selecciona cuáles quieres guardar.</span>
+          </div>
+          <div class="inline-actions">
+            <button id="select-all-page-images" class="ghost small-button">Todas</button>
+            <button id="select-no-page-images" class="ghost small-button">Ninguna</button>
+          </div>
+        </div>
+        <div id="page-images-grid" class="media-grid"></div>
+        <button id="download-page-images" class="secondary full-width-button">Descargar imágenes seleccionadas</button>
+      </section>
 
       <section id="subtitle-panel" class="subcard hidden">
         <div class="subcard-head">
