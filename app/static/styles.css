@@ -17,6 +17,16 @@ button { cursor:pointer; }
 .eyebrow { letter-spacing:.18em; font-size:12px; font-weight:800; color:#9da3af; }
 h1 { font-size:clamp(44px,9vw,88px); line-height:.95; letter-spacing:-.06em; margin:10px 0 18px; }
 .hero p { color:#b9bec8; font-size:18px; margin:0; }
+.site-badges { display:flex; flex-wrap:wrap; gap:7px; margin-top:16px; }
+.site-badges span {
+  padding:6px 9px;
+  border:1px solid #333740;
+  border-radius:999px;
+  background:#14161a;
+  color:#aeb4be;
+  font-size:12px;
+  font-weight:700;
+}
 .card {
   background:rgba(24,26,31,.86);
   border:1px solid #30333a;
