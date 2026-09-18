@@ -4,6 +4,7 @@ const recentJobs = [];
 const notificationJobs = new Map();
 const streamsByTab = new Map();
 const zoomSourcesByTab = new Map();
+const contextTargetsByTab = new Map();
 
 function streamScore(url, type) {
   const lower = String(url || "").toLowerCase();
@@ -124,6 +125,7 @@ browser.webRequest.onBeforeRequest.addListener(
 browser.tabs.onRemoved.addListener((tabId) => {
   streamsByTab.delete(tabId);
   zoomSourcesByTab.delete(tabId);
+  contextTargetsByTab.delete(tabId);
 });
 
 async function getCleanMode() {
@@ -178,6 +180,228 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(data.detail || `Error ${response.status}`);
   return data;
 }
+
+
+async function ensureMaxUrlEngine() {
+  let state = await api("/api/maxurl/status");
+  if (!state || !state.installed) {
+    state = await api("/api/maxurl/install", {
+      method: "POST",
+      body: "{}",
+    });
+  }
+  return state;
+}
+
+async function resolveMaxImage(url) {
+  await ensureMaxUrlEngine();
+  return api("/api/maxurl/resolve", {
+    method: "POST",
+    body: JSON.stringify({ url: url }),
+  });
+}
+
+async function ensureDezoomEngine() {
+  let state = await api("/api/dezoom/status");
+  if (!state || !state.installed) {
+    state = await api("/api/dezoom/install", {
+      method: "POST",
+      body: "{}",
+    });
+  }
+  return state;
+}
+
+function safeFilenameFromUrl(value, fallback) {
+  fallback = fallback || "image";
+  try {
+    const parsed = new URL(value);
+    const leaf = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() || "");
+    const cleaned = leaf.replace(/[<>:"/\\|?*\x00-\x1f]/g, "").trim();
+    if (cleaned) return cleaned.slice(0, 120);
+  } catch {}
+  return fallback;
+}
+
+function contextSource(info, tab) {
+  const remembered = contextTargetsByTab.get(tab && tab.id) || {};
+  return (info && info.srcUrl) || remembered.url || (info && info.linkUrl) || (tab && tab.url) || null;
+}
+
+async function downloadResolvedImage(inputUrl) {
+  const result = await resolveMaxImage(inputUrl);
+  const best = result && result.best;
+  if (!best || !best.url) {
+    throw new Error("Image Max URL no encontró una versión mayor u original.");
+  }
+
+  let filename = best.filename || safeFilenameFromUrl(best.url, "imagen-original");
+  if (!/\.[a-z0-9]{2,5}$/i.test(filename)) filename += ".jpg";
+
+  const id = await browser.downloads.download({
+    url: best.url,
+    filename: "TikSave/Originals/" + filename,
+    conflictAction: "uniquify",
+    saveAs: false,
+  });
+
+  result.download_id = id;
+  return result;
+}
+
+async function startContextVideo(tab) {
+  const pageUrl = tab && tab.url;
+  if (!pageUrl) throw new Error("No pude leer la URL de esta pestaña.");
+
+  const supported = /(?:youtube\.com|youtu\.be|tiktok\.com|douyin\.com|iesdouyin\.com|instagram\.com|facebook\.com|fb\.watch)/i.test(pageUrl);
+
+  if (supported) {
+    return startJob("/api/download", {
+      url: pageUrl,
+      mode: "video",
+      quality: "best",
+      playlist: false,
+      music_metadata: false,
+    });
+  }
+
+  const list = streamsByTab.get(tab.id) || [];
+  const stream = list.find((item) => Number(item.score || 0) >= 0);
+
+  return startJob("/api/browser-media", {
+    page_url: pageUrl,
+    media_url: stream ? stream.url : null,
+    mode: "video",
+    quality: "best",
+  });
+}
+
+function createContextMenus() {
+  try {
+    browser.contextMenus.removeAll().then(() => {
+      browser.contextMenus.create({
+        id: "tiksave-root",
+        title: "TikSave",
+        contexts: ["page", "link", "image", "video", "audio"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-original-open",
+        parentId: "tiksave-root",
+        title: "Abrir imagen original / máxima resolución",
+        contexts: ["image", "page"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-original-download",
+        parentId: "tiksave-root",
+        title: "Descargar imagen original / máxima resolución",
+        contexts: ["image", "page"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-dezoom",
+        parentId: "tiksave-root",
+        title: "Reconstruir imagen por mosaicos",
+        contexts: ["image", "page", "link"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-separator-1",
+        parentId: "tiksave-root",
+        type: "separator",
+        contexts: ["page", "link", "image", "video", "audio"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-download-video",
+        parentId: "tiksave-root",
+        title: "Descargar video de esta página",
+        contexts: ["page", "video"],
+      });
+
+      browser.contextMenus.create({
+        id: "tiksave-open-app",
+        parentId: "tiksave-root",
+        title: "Abrir esta página en TikSave",
+        contexts: ["page", "link", "image", "video", "audio"],
+      });
+    }).catch(() => {});
+  } catch {}
+}
+
+createContextMenus();
+if (browser.runtime.onInstalled) {
+  browser.runtime.onInstalled.addListener(createContextMenus);
+}
+
+browser.contextMenus.onClicked.addListener(async (info, tab) => {
+  try {
+    const source = contextSource(info, tab);
+
+    if (info.menuItemId === "tiksave-original-open") {
+      if (!source) throw new Error("No encontré una imagen debajo del cursor.");
+      const result = await resolveMaxImage(source);
+      if (!result || !result.best || !result.best.url) {
+        throw new Error("No encontré una versión mayor de esta imagen.");
+      }
+      await browser.tabs.create({ url: result.best.url });
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-original-download") {
+      if (!source) throw new Error("No encontré una imagen debajo del cursor.");
+      const result = await downloadResolvedImage(source);
+      await sendToastToActiveTab({
+        status: "done",
+        title: (result.best && result.best.filename) || "Imagen original enviada a Descargas",
+        filename: "TikSave/Originals",
+      });
+      await showFinishedBadge(true);
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-dezoom") {
+      const detectedList = zoomSourcesByTab.get(tab && tab.id) || [];
+      const detected = detectedList[0];
+      const zoomSource = (detected && detected.url) || source;
+      if (!zoomSource) throw new Error("No encontré una fuente de imagen para reconstruir.");
+
+      await ensureDezoomEngine();
+      const job = await startJob("/api/dezoom/download", {
+        source_url: zoomSource,
+        page_url: (tab && tab.url) || null,
+        output_format: "jpg",
+      });
+      await sendToastToActiveTab({
+        status: "done",
+        title: "Reconstrucción iniciada",
+        filename: (job && job.id) || "",
+      });
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-download-video") {
+      await startContextVideo(tab);
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-open-app") {
+      const target = (info && info.linkUrl) || (tab && tab.url) || source;
+      if (!target) throw new Error("No encontré un enlace para abrir.");
+      await browser.tabs.create({
+        url: API + "/?url=" + encodeURIComponent(target),
+      });
+    }
+  } catch (error) {
+    await sendToastToActiveTab({
+      status: "error",
+      title: "TikSave",
+      error: (error && error.message) || String(error),
+    });
+    await showFinishedBadge(false);
+  }
+});
 
 async function broadcastJob(job) {
   try {
@@ -355,7 +579,13 @@ async function downloadImages(payload) {
   return { count: ids.length, ids };
 }
 
-browser.runtime.onMessage.addListener(async (message) => {
+browser.runtime.onMessage.addListener(async (message, sender) => {
+  if (message && message.type === "rememberContextTarget" && message.target && sender && sender.tab && sender.tab.id != null) {
+    contextTargetsByTab.set(sender.tab.id, message.target);
+    return { ok: true };
+  }
+
+
   switch (message?.type) {
     case "health":
       return api("/api/health");
@@ -392,6 +622,24 @@ browser.runtime.onMessage.addListener(async (message) => {
 
     case "getDetectedZoomSources":
       return zoomSourcesByTab.get(message.tabId) || [];
+
+    case "getContextTarget":
+      return contextTargetsByTab.get(message.tabId) || null;
+
+    case "getMaxUrlStatus":
+      return api("/api/maxurl/status");
+
+    case "installMaxUrl":
+      return api("/api/maxurl/install", {
+        method: "POST",
+        body: "{}",
+      });
+
+    case "resolveMaxUrl":
+      return resolveMaxImage(message.url);
+
+    case "downloadMaxUrl":
+      return downloadResolvedImage(message.url);
 
     case "getCleanMode":
       return { enabled: await getCleanMode() };
