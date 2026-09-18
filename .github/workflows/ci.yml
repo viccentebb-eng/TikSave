@@ -49,3 +49,9 @@ jobs:
 
       - name: Validate context target JavaScript
         run: node --check extension/context-target.js
+
+      - name: Validate native image rules
+        run: python -c "from app.native_image import generate_candidates; c=generate_candidates('https://i.pinimg.com/564x/aa/bb/cc/test.jpg'); assert any('/originals/' in x.url for x in c)"
+
+      - name: Validate analyzer cache import
+        run: python -c "import app.analyzer; assert app.analyzer.ANALYZE_CACHE_TTL > 0"
