@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import os
 import re
 import threading
@@ -63,6 +64,29 @@ def validate_supported_url(value: str) -> str:
         raise ValueError("El enlace debe comenzar con http:// o https://")
     if not detect_platform(value):
         raise ValueError("Solo se admiten enlaces de TikTok, YouTube, Instagram o Facebook.")
+    return value
+
+
+def validate_public_web_url(value: str) -> str:
+    value = value.strip()
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+
+    if parsed.scheme not in {"http", "https"} or not host:
+        raise ValueError("La fuente del video debe ser una URL web HTTP o HTTPS.")
+
+    if host in {"localhost", "localhost.localdomain"}:
+        raise ValueError("No se permiten direcciones locales como fuente multimedia.")
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError("No se permiten direcciones privadas o locales.")
+    except ValueError as exc:
+        if "No se permiten" in str(exc):
+            raise
+        # A normal domain name is valid here.
+
     return value
 
 
@@ -240,6 +264,7 @@ class Job:
     music_metadata: bool = False
     subtitle_format: str = "srt"
     subtitle_languages: list[str] | None = None
+    referer: str | None = None
     status: str = "queued"
     progress: float = 0.0
     speed: str | None = None
@@ -381,6 +406,34 @@ class TikSaveDownloader:
             music_metadata=bool(music_metadata),
             subtitle_format=subtitle_format,
             subtitle_languages=subtitle_languages,
+        )
+        self.pool.submit(self._download, job.id)
+        return self.jobs.get(job.id) or {}
+
+    def enqueue_browser_media(
+        self,
+        page_url: str,
+        media_url: str | None,
+        mode: str,
+        quality: str = "best",
+    ) -> dict[str, Any]:
+        page_url = validate_public_web_url(page_url)
+        source_url = validate_public_web_url(media_url) if media_url else page_url
+
+        if mode not in {"video", "mp3", "audio"}:
+            raise ValueError("Modo de descarga multimedia inválido.")
+
+        job = self.jobs.create(
+            url=source_url,
+            mode=mode,
+            platform="web",
+            quality=quality,
+            playlist=False,
+            selected_items=None,
+            music_metadata=False,
+            subtitle_format="srt",
+            subtitle_languages=None,
+            referer=page_url,
         )
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
@@ -723,6 +776,11 @@ class TikSaveDownloader:
                 "windowsfilenames": True,
                 "overwrites": False,
             }
+
+            if job.get("referer"):
+                headers = dict(common.get("http_headers") or {})
+                headers["Referer"] = str(job["referer"])
+                common["http_headers"] = headers
 
             if job.get("selected_items"):
                 common["playlist_items"] = ",".join(str(item) for item in job["selected_items"])
