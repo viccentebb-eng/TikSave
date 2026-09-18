@@ -15,12 +15,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.dezoom import install as install_dezoomify, status as dezoom_status
+from app.maxurl import install as install_maxurl, resolve as resolve_maxurl, status as maxurl_status
 from app.downloader import (
     TikSaveDownloader,
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, InspectRequest
+from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, InspectRequest, MaxUrlResolveRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,7 @@ def health() -> dict:
         "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
         "subtitle_formats": ["srt", "vtt", "txt", "ass"],
         "dezoomify": dezoom_status(),
+        "maxurl": maxurl_status(),
     }
 
 
@@ -134,6 +136,35 @@ def start_dezoom(payload: DezoomRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/maxurl/status")
+def maxurl_engine_status() -> dict:
+    return maxurl_status()
+
+
+@app.post("/api/maxurl/install")
+def maxurl_engine_install() -> dict:
+    try:
+        return install_maxurl()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo instalar Image Max URL: {clean_error(exc)}",
+        ) from exc
+
+
+@app.post("/api/maxurl/resolve")
+def maxurl_engine_resolve(payload: MaxUrlResolveRequest) -> dict:
+    try:
+        return resolve_maxurl(str(payload.url))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Image Max URL no pudo analizar la imagen: {clean_error(exc)}",
+        ) from exc
 
 
 @app.get("/api/jobs/{job_id}")
