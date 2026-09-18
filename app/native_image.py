@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import copy
 import re
 import shutil
 import struct
+import threading
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse, unquote
@@ -14,6 +18,9 @@ from app.diagnostics import write_event
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
 MAX_PROBE_BYTES = 96 * 1024
+RESOLVE_CACHE_TTL = 600.0
+_RESOLVE_CACHE: dict[tuple[str, str | None], tuple[float, dict]] = {}
+_RESOLVE_LOCK = threading.Lock()
 KNOWN_SIZE_PARAMS = {
     "w", "width", "h", "height", "size", "sz", "resize", "fit", "crop",
     "dpr", "scale",
@@ -357,10 +364,46 @@ def probe(candidate: Candidate, referer: str | None = None) -> Probe:
     return result
 
 
+def _cache_get(url: str, referer: str | None) -> dict | None:
+    key = (url, referer)
+    now = time.monotonic()
+    with _RESOLVE_LOCK:
+        item = _RESOLVE_CACHE.get(key)
+        if not item:
+            return None
+        created, value = item
+        if now - created > RESOLVE_CACHE_TTL:
+            _RESOLVE_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(value)
+
+
+def _cache_put(url: str, referer: str | None, value: dict) -> dict:
+    key = (url, referer)
+    with _RESOLVE_LOCK:
+        _RESOLVE_CACHE[key] = (time.monotonic(), copy.deepcopy(value))
+        if len(_RESOLVE_CACHE) > 256:
+            oldest = min(_RESOLVE_CACHE.items(), key=lambda item: item[1][0])[0]
+            _RESOLVE_CACHE.pop(oldest, None)
+    return value
+
+
 def resolve(url: str, referer: str | None = None) -> dict:
+    cached = _cache_get(url, referer)
+    if cached is not None:
+        cached["cached"] = True
+        return cached
+
     write_event("native-image", "resolve-start", message=url, details={"referer": referer})
     candidates = generate_candidates(url)
-    probes = [probe(candidate, referer=referer) for candidate in candidates]
+
+    if len(candidates) <= 1:
+        probes = [probe(candidate, referer=referer) for candidate in candidates]
+    else:
+        workers = min(4, len(candidates))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tiksave-image") as pool:
+            probes = list(pool.map(lambda candidate: probe(candidate, referer=referer), candidates))
+
     working = [item for item in probes if item.ok]
 
     if not working:
@@ -388,7 +431,7 @@ def resolve(url: str, referer: str | None = None) -> dict:
         },
     )
 
-    return {
+    result = {
         "input": url,
         "found": True,
         "engine": "TikSave Native Image",
@@ -403,7 +446,9 @@ def resolve(url: str, referer: str | None = None) -> dict:
                 or int(best.content_length or 0) > int(current.content_length or 0)
             )
         ),
+        "cached": False,
     }
+    return _cache_put(url, referer, result)
 
 
 def _safe_filename(url: str, fallback: str = "imagen-original") -> str:
