@@ -11,11 +11,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from mutagen.id3 import APIC, ID3, ID3NoHeaderError, TALB, TIT2, TPE1, TDRC
+from mutagen.id3 import APIC, ID3, ID3NoHeaderError, TALB, TIT2, TPE1, TDRC, TCON, TRCK
 
 
 MUSICBRAINZ_BASE = "https://musicbrainz.org/ws/2"
 COVER_ART_BASE = "https://coverartarchive.org"
+ITUNES_SEARCH = "https://itunes.apple.com/search"
 USER_AGENT = "TikSave/0.4.0 (https://github.com/viccentebb-eng/TikSave)"
 MB_LOCK = threading.Lock()
 MB_LAST_REQUEST = 0.0
@@ -206,6 +207,70 @@ def find_musicbrainz_match(info: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _itunes_match(match: dict[str, Any]) -> dict[str, Any] | None:
+    artist = _normalize(str(match.get("artist") or ""))
+    title = _normalize(str(match.get("title") or ""))
+    album = _normalize(str(match.get("album") or ""))
+
+    if not artist or not title:
+        return None
+
+    term = " ".join(part for part in (artist, title, album) if part)
+    url = f"{ITUNES_SEARCH}?{urlencode({'term': term, 'entity': 'song', 'limit': '10'})}"
+    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+
+    try:
+        with urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return None
+
+    best: tuple[float, dict[str, Any]] | None = None
+
+    for item in payload.get("results") or []:
+        title_score = _ratio(title, item.get("trackName"))
+        artist_score = _ratio(artist, item.get("artistName"))
+        album_score = _ratio(album, item.get("collectionName")) if album else 80.0
+        confidence = (title_score * 0.5) + (artist_score * 0.35) + (album_score * 0.15)
+
+        if best is None or confidence > best[0]:
+            best = (confidence, item)
+
+    if best is None or best[0] < 78:
+        return None
+
+    item = best[1]
+    artwork = item.get("artworkUrl100") or item.get("artworkUrl60")
+    if artwork:
+        artwork = re.sub(r"\d+x\d+bb", "800x800bb", artwork)
+
+    return {
+        "confidence": round(best[0], 1),
+        "title": item.get("trackName"),
+        "artist": item.get("artistName"),
+        "album": item.get("collectionName"),
+        "date": str(item.get("releaseDate") or "")[:10] or None,
+        "track_number": item.get("trackNumber"),
+        "genre": item.get("primaryGenreName"),
+        "artwork": artwork,
+    }
+
+
+def _download_image(url: str | None) -> tuple[bytes, str] | None:
+    if not url:
+        return None
+    request = Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urlopen(request, timeout=15) as response:
+            data = response.read()
+            mime = response.headers.get_content_type() or "image/jpeg"
+            if data:
+                return data, mime
+    except (HTTPError, URLError, TimeoutError):
+        return None
+    return None
+
+
 def _download_cover(match: dict[str, Any]) -> tuple[bytes, str] | None:
     candidates: list[str] = []
 
@@ -227,6 +292,12 @@ def _download_cover(match: dict[str, Any]) -> tuple[bytes, str] | None:
                     return data, content_type
         except (HTTPError, URLError, TimeoutError):
             continue
+
+    itunes = _itunes_match(match)
+    if itunes and itunes.get("artwork"):
+        cover = _download_image(str(itunes["artwork"]))
+        if cover:
+            return cover
 
     return None
 
@@ -294,8 +365,17 @@ def apply_music_metadata(mp3_path: Path, info: dict[str, Any]) -> dict[str, Any]
             tags.add(TPE1(encoding=3, text=str(match["artist"])))
         if match.get("album"):
             tags.add(TALB(encoding=3, text=str(match["album"])))
+        itunes = _itunes_match(match)
+
         if match.get("date"):
             tags.add(TDRC(encoding=3, text=str(match["date"])))
+        elif itunes and itunes.get("date"):
+            tags.add(TDRC(encoding=3, text=str(itunes["date"])))
+
+        if itunes and itunes.get("track_number"):
+            tags.add(TRCK(encoding=3, text=str(itunes["track_number"])))
+        if itunes and itunes.get("genre"):
+            tags.add(TCON(encoding=3, text=str(itunes["genre"])))
 
         cover = _download_cover(match)
         if cover:
@@ -310,7 +390,7 @@ def apply_music_metadata(mp3_path: Path, info: dict[str, Any]) -> dict[str, Any]
                 )
             )
 
-        tags.save(mp3_path)
+        tags.save(mp3_path, v2_version=3)
 
         artist = str(match.get("artist") or "Artista")
         title = str(match.get("title") or mp3_path.stem)
@@ -331,7 +411,7 @@ def apply_music_metadata(mp3_path: Path, info: dict[str, Any]) -> dict[str, Any]
             "date": match.get("date"),
             "confidence": match.get("confidence"),
             "cover": bool(cover),
-            "source": "MusicBrainz + Cover Art Archive",
+            "source": "MusicBrainz + Cover Art Archive/iTunes",
         }
 
     except Exception as exc:
