@@ -1,2 +1,36 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"></head><body><main><div class="mark">TS</div><h1>TikSave</h1><p id="url">Leyendo pestaña…</p><div class="buttons"><button data-mode="video" class="primary">Descargar MP4</button><button data-mode="mp3">Descargar MP3</button><button data-mode="audio">Audio original</button><button id="open" class="ghost">Abrir TikSave</button></div><div id="message"></div></main><script src="popup.js"></script></body></html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <div class="mark">TS</div>
+    <h1>TikSave</h1>
+    <p id="url">Leyendo pestaña…</p>
+
+    <label for="quality">Resolución de video</label>
+    <select id="quality">
+      <option value="best">Mejor disponible</option>
+      <option value="2160">2160p / 4K</option>
+      <option value="1440">1440p</option>
+      <option value="1080">1080p</option>
+      <option value="720">720p</option>
+      <option value="480">480p</option>
+      <option value="360">360p</option>
+    </select>
+
+    <div class="buttons">
+      <button data-mode="video" class="primary">Descargar MP4</button>
+      <button data-mode="mp3">Descargar MP3</button>
+      <button data-mode="audio">Audio original</button>
+      <button id="open" class="ghost">Abrir TikSave</button>
+    </div>
+
+    <div id="message"></div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
