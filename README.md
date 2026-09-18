@@ -1,17 +1,19 @@
 # TikSave Local
 
-Aplicacion local y extension de Firefox para guardar contenido publico de TikTok sin depender de paginas con publicidad.
+Aplicación local y extensión de Firefox para guardar contenido público de TikTok y YouTube sin depender de páginas con publicidad.
 
 ## Funciones
 
+- TikTok: enlaces normales, móviles y enlaces cortos.
+- YouTube: videos normales, enlaces `youtu.be` y Shorts.
 - Descarga de video MP4 con la mejor calidad disponible.
-- Extraccion a MP3 mediante FFmpeg.
+- Extracción a MP3 mediante FFmpeg.
 - Descarga del mejor audio disponible sin convertir.
-- Vista previa con titulo, autor y miniatura.
+- Vista previa con título, autor/canal y miniatura.
 - Progreso de descarga en tiempo real.
 - Guarda por defecto en `Descargas/TikSave`.
-- Boton para abrir la carpeta de descargas.
-- Extension de Firefox para enviar la pestaña actual a TikSave.
+- Botón para abrir la carpeta de descargas.
+- Extensión de Firefox para enviar la pestaña actual a TikSave.
 - Todo corre en `127.0.0.1`; no hay servidor externo de TikSave.
 
 ## Windows
@@ -25,14 +27,31 @@ cd TikSave
 
 Al iniciar se abre `http://127.0.0.1:8173`.
 
-## Extension temporal de Firefox
+## Probar la rama de YouTube
+
+```powershell
+git fetch origin
+git switch feature/youtube-support
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Para regresar a la versión estable:
+
+```powershell
+git switch main
+git pull
+```
+
+## Extensión temporal de Firefox
 
 1. Inicia TikSave Local.
 2. En Firefox abre `about:debugging`.
 3. Entra a **Este Firefox**.
 4. Pulsa **Cargar complemento temporal**.
 5. Selecciona `extension/manifest.json`.
-6. Abre un TikTok y pulsa el icono de TikSave.
+6. Abre un video de TikTok o YouTube y pulsa el icono de TikSave.
 
 ## Desarrollo manual
 
@@ -45,7 +64,7 @@ python -m app.main
 
 ## Seguridad y alcance
 
-TikSave valida que el enlace pertenezca a TikTok y no incorpora cookies de cuentas ni mecanismos para acceder a contenido privado. Esta pensado para contenido publico que el usuario tenga derecho a guardar.
+TikSave solo admite URLs públicas de TikTok y YouTube. No incorpora cookies de cuentas ni mecanismos para evitar contenido privado, de pago, con DRM o restricciones de acceso. Úsalo únicamente con contenido que tengas derecho a guardar.
 
 ## Licencia
 
