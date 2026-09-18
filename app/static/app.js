@@ -8,6 +8,20 @@ const jobPollers = new Map();
 let currentInspection = null;
 let inspectTimer = null;
 
+function setAnalysisState(text, type = "") {
+  const node = $("analysis-state");
+  if (!node) return;
+  node.textContent = text;
+  node.className = `analysis-state ${type}`.trim();
+}
+
+function setStatusPill(id, text, type = "pending") {
+  const node = $(id);
+  if (!node) return;
+  node.className = `status-pill ${type}`;
+  node.innerHTML = `<i></i>${escapeHtml(text)}`;
+}
+
 function showMessage(text, type = "") {
   message.textContent = text;
   message.className = `message ${type}`.trim();
@@ -88,11 +102,16 @@ async function inspectFirst({ silent = false } = {}) {
   const urls = getUrls();
   if (urls.length !== 1) {
     resetInspection();
+    setAnalysisState(urls.length > 1 ? `${urls.length} enlaces` : "Listo");
     if (!silent) showMessage("La selección visual y los subtítulos se muestran cuando hay un solo enlace.");
     return null;
   }
 
   if (!silent) clearMessage();
+
+  const inspectButton = $("inspect");
+  inspectButton.disabled = true;
+  setAnalysisState("Analizando…", "busy");
 
   try {
     const data = await api("/api/analyze", {
@@ -105,11 +124,15 @@ async function inspectFirst({ silent = false } = {}) {
 
     currentInspection = data;
     renderInspection(data);
+    setAnalysisState(data.cached ? "Listo · caché" : "Listo", "ok");
     return data;
   } catch (err) {
     resetInspection();
+    setAnalysisState("No analizado", "error");
     if (!silent) showMessage(err.message, "error");
     return null;
+  } finally {
+    inspectButton.disabled = false;
   }
 }
 
@@ -490,7 +513,7 @@ urlsInput.addEventListener("input", () => {
     } else {
       resetInspection();
     }
-  }, 900);
+  }, 550);
 });
 
 $("playlist").addEventListener("change", () => {
@@ -767,6 +790,7 @@ $("clear").addEventListener("click", () => {
   jobPollers.clear();
 
   clearMessage();
+  setAnalysisState("Listo");
   urlsInput.focus();
 });
 
@@ -789,6 +813,31 @@ $("open-log").addEventListener("click", async () => {
 });
 
 
+
+async function loadSystemStatus() {
+  try {
+    const health = await api("/api/health");
+
+    setStatusPill("status-app", `TikSave ${health.version || ""}`.trim(), "ok");
+    setStatusPill("status-image", "Imagen nativa", health.native_image?.installed ? "ok" : "bad");
+    setStatusPill(
+      "status-dezoom",
+      health.dezoomify?.installed ? "Dezoomify listo" : "Dezoomify pendiente",
+      health.dezoomify?.installed ? "ok" : "warn",
+    );
+    setStatusPill(
+      "status-ffmpeg",
+      health.ffmpeg?.installed ? "FFmpeg listo" : "FFmpeg pendiente",
+      health.ffmpeg?.installed ? "ok" : "warn",
+    );
+  } catch (err) {
+    setStatusPill("status-app", "TikSave sin conexión", "bad");
+    setStatusPill("status-image", "Imagen nativa", "pending");
+    setStatusPill("status-dezoom", "Dezoomify", "pending");
+    setStatusPill("status-ffmpeg", "FFmpeg", "pending");
+  }
+}
+
 async function prefillFromSharedUrl() {
   const params = new URLSearchParams(window.location.search);
   const sharedUrl = params.get("url");
@@ -804,4 +853,5 @@ async function prefillFromSharedUrl() {
   history.replaceState({}, "", window.location.pathname);
 }
 
+loadSystemStatus();
 prefillFromSharedUrl();
