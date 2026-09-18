@@ -368,6 +368,38 @@ Omitir motores externos:
 - Instagram, TikTok y Douyin incorporan un escáner de imágenes/carruseles. En Instagram intenta recorrer automáticamente el carrusel y regresar al elemento inicial para descubrir imágenes sin que tengas que previsualizarlas manualmente.
 - Si Instagram solo entrega al backend su pantalla de login/interfaz, la app ya no muestra logos y gráficos de Instagram como si fueran fotos del post; indica usar la extensión con la sesión abierta.
 
+## Rama experimental 0.14.0
+
+```text
+feature/douyin-carousel-googlearts-fixes
+```
+
+Cambios principales:
+
+- Los textos compartidos por Douyin, TikTok y otras apps ya pueden pegarse completos: TikSave extrae las URLs HTTP/HTTPS válidas y normaliza shortlinks conocidos antes del análisis o la descarga.
+- Los errores JSON de FastAPI se convierten a mensajes legibles en la app web y en la extensión; no deben volver a aparecer errores literales como `[object Object]`.
+- Google Arts & Culture usa automáticamente Dezoomify para **Original / máxima resolución** cuando se trata de una página `/asset/`; TikSave Native Image queda como alternativa para imágenes directas Googleusercontent.
+- El detector de Firefox reconoce el visor de Google Arts y sus requests de mosaicos Googleusercontent, sin depender de que exista un `info.json` o `.dzi` visible.
+- TikSave Native Image incorpora reglas adicionales para CDN de Instagram/Facebook y TikTok/Douyin, además de las reglas existentes para Google, Pinterest, X, WordPress, Shopify y Cloudinary. Los candidatos siguen verificándose por HTTP antes de seleccionarse.
+- El visor flotante admite carruseles con anterior/siguiente, contador, flechas de teclado, precarga vecina, zoom conservado por imagen, descarga de la imagen actual y descarga de todas.
+- El escáner de Instagram recorre automáticamente hacia el inicio y después todo el carrusel, captura la mejor URL visible, conserva el orden y vuelve a la diapositiva que estaba abierta al iniciar el escaneo.
+- La app web de Instagram elimina resultados falsos de la carcasa/login y pide usar la extensión con la sesión de Firefox cuando el contenido real no está disponible públicamente.
+- El log registra normalización/redirecciones, extractor, candidatos y reglas de imagen, resoluciones probadas, comandos de Dezoomify y conteo/restauración de carruseles, sin guardar cookies ni credenciales.
+- El escaneo social deja de repetirse automáticamente en el popup y se ejecuta sin bloquear la inicialización de la interfaz.
+
+Para probar esta rama:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/douyin-carousel-googlearts-fixes
+git reset --hard origin/feature/douyin-carousel-googlearts-fixes
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Después vuelve a cargar `extension/manifest.json` como complemento temporal desde `about:debugging`.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
