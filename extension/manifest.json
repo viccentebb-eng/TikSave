@@ -1,10 +1,21 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.7.0",
-  "description": "Descarga videos, audio y subtítulos desde TikTok, YouTube, Instagram y Facebook con TikSave.",
-  "permissions": ["activeTab", "scripting", "notifications"],
-  "host_permissions": ["http://127.0.0.1:8173/*"],
+  "version": "0.8.0",
+  "description": "Descarga videos, audio y subtítulos, detecta reproductores y ofrece herramientas de navegación limpia.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "notifications",
+    "tabs",
+    "storage",
+    "webRequest",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:8173/*"
+  ],
   "icons": {
     "48": "icons/tiksave.svg",
     "96": "icons/tiksave.svg"
@@ -19,6 +30,15 @@
   },
   "background": {
     "scripts": ["background.js"]
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "clean_ads",
+        "enabled": false,
+        "path": "rules/clean-ads.json"
+      }
+    ]
   },
   "content_scripts": [
     {
