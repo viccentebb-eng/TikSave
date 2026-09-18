@@ -5,6 +5,8 @@ import os
 import platform
 import shutil
 import subprocess
+import threading
+import time
 import tarfile
 import tempfile
 import urllib.request
@@ -14,7 +16,11 @@ from typing import Callable
 
 
 RELEASE_API = "https://api.github.com/repos/lovasoa/dezoomify-rs/releases/latest"
-USER_AGENT = "TikSave/0.10.0 (https://github.com/viccentebb-eng/TikSave)"
+LICENSE_URL = "https://raw.githubusercontent.com/lovasoa/dezoomify-rs/master/LICENSE"
+SOURCE_URL = "https://github.com/lovasoa/dezoomify-rs"
+USER_AGENT = "TikSave/0.13.0 (https://github.com/viccentebb-eng/TikSave)"
+_STATUS_CACHE: tuple[float, dict] | None = None
+_STATUS_LOCK = threading.Lock()
 
 
 def _tool_dir() -> Path:
@@ -46,7 +52,20 @@ def find_binary() -> Path | None:
     return None
 
 
-def status() -> dict:
+def _clear_status_cache() -> None:
+    global _STATUS_CACHE
+    with _STATUS_LOCK:
+        _STATUS_CACHE = None
+
+
+def status(force: bool = False) -> dict:
+    global _STATUS_CACHE
+
+    now = time.monotonic()
+    with _STATUS_LOCK:
+        if not force and _STATUS_CACHE and now - _STATUS_CACHE[0] < 60:
+            return dict(_STATUS_CACHE[1])
+
     binary = find_binary()
     version = None
 
@@ -56,20 +75,27 @@ def status() -> dict:
                 [str(binary), "--version"],
                 capture_output=True,
                 text=True,
-                timeout=8,
+                timeout=5,
                 check=False,
             )
             version = (result.stdout or result.stderr or "").strip() or None
         except Exception:
             version = None
 
-    return {
+    value = {
         "installed": bool(binary),
         "path": str(binary) if binary else None,
         "version": version,
         "license": "GPL-3.0",
         "upstream": "lovasoa/dezoomify-rs",
+        "source": SOURCE_URL,
+        "external_process": True,
     }
+
+    with _STATUS_LOCK:
+        _STATUS_CACHE = (time.monotonic(), dict(value))
+
+    return value
 
 
 def _request_json(url: str) -> dict:
@@ -167,10 +193,10 @@ def _extract_binary(downloaded: Path, destination: Path) -> Path:
     return target
 
 
-def install() -> dict:
+def install(force: bool = False) -> dict:
     existing = find_binary()
-    if existing:
-        return status()
+    if existing and not force:
+        return status(force=True)
 
     release = _request_json(RELEASE_API)
     assets = release.get("assets") or []
@@ -206,12 +232,23 @@ def install() -> dict:
     notice = tool_dir / "THIRD_PARTY.txt"
     notice.write_text(
         "dezoomify-rs is an independent GPL-3.0 project by Ophir LOJKINE and contributors.\n"
-        "Source: https://github.com/lovasoa/dezoomify-rs\n"
-        "TikSave invokes it as an external tool and does not vendor its source code.\n",
+        f"Source: {SOURCE_URL}\n"
+        "License: GPL-3.0\n"
+        "TikSave invokes it as a separate external executable.\n",
         encoding="utf-8",
     )
 
-    result = status()
+    try:
+        request = urllib.request.Request(LICENSE_URL, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            (tool_dir / "LICENSE-GPL-3.0.txt").write_bytes(response.read())
+    except Exception:
+        # The source URL and license identifier remain in THIRD_PARTY.txt even if
+        # GitHub is temporarily unavailable for the license text.
+        pass
+
+    _clear_status_cache()
+    result = status(force=True)
     result["release"] = release.get("tag_name")
     result["asset"] = name
     result["path"] = str(binary)
