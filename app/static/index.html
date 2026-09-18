@@ -78,6 +78,18 @@
         <div id="message" class="message hidden"></div>
       </section>
 
+      <section id="analysis-queue" class="card analysis-queue hidden">
+        <div class="section-head">
+          <div>
+            <span class="kicker">Contenido</span>
+            <h2>Enlaces analizados</h2>
+            <p>Selecciona un elemento para ver sus opciones. TikSave los analiza de uno en uno para no mezclar acciones.</p>
+          </div>
+          <span id="analysis-queue-summary" class="analysis-state">0 / 0</span>
+        </div>
+        <div id="analysis-queue-list" class="analysis-queue-list"></div>
+      </section>
+
       <section id="preview" class="preview card hidden">
         <img id="thumb" alt="Miniatura del contenido">
         <div class="preview-copy">
@@ -85,6 +97,34 @@
           <strong id="title"></strong>
           <span id="uploader"></span>
           <span id="playlist-info"></span>
+        </div>
+      </section>
+
+      <section id="trim-panel" class="card trim-card hidden">
+        <div class="section-head">
+          <div>
+            <span class="kicker">Edición rápida</span>
+            <h2>Recortar antes de descargar</h2>
+            <p id="trim-help">Opcional. TikSave puede guardar solo el tramo que necesitas.</p>
+          </div>
+          <label class="trim-toggle">
+            <input id="clip-enabled" type="checkbox">
+            <span>Activar recorte</span>
+          </label>
+        </div>
+        <div id="trim-fields" class="trim-fields hidden">
+          <label>
+            <span>Inicio</span>
+            <input id="clip-start" type="text" inputmode="numeric" placeholder="00:00">
+          </label>
+          <label>
+            <span>Final</span>
+            <input id="clip-end" type="text" inputmode="numeric" placeholder="00:30">
+          </label>
+          <label class="precise-toggle">
+            <input id="precise-clip" type="checkbox">
+            <span><strong>Recorte preciso</strong><small>Reencodifica alrededor del corte; tarda un poco más.</small></span>
+          </label>
         </div>
       </section>
 
@@ -166,7 +206,17 @@
         <div id="subtitle-tracks" class="subtitle-tracks"></div>
       </section>
 
-      <section id="jobs" class="jobs hidden"></section>
+      <section id="jobs" class="card jobs hidden">
+        <div class="section-head jobs-head">
+          <div>
+            <span class="kicker">Trabajos</span>
+            <h2>Cola y progreso</h2>
+            <p>Cada descarga conserva su propio estado. Puedes seguir trabajando mientras termina.</p>
+          </div>
+          <span id="jobs-count" class="analysis-state">0 activos</span>
+        </div>
+        <div id="jobs-list" class="jobs-list"></div>
+      </section>
 
       <footer class="utility-bar">
         <div>

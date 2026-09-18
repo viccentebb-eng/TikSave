@@ -2,11 +2,14 @@ const $ = (id) => document.getElementById(id);
 
 const urlsInput = $("urls");
 const message = $("message");
-const jobsBox = $("jobs");
+const jobsPanel = $("jobs");
+const jobsBox = $("jobs-list");
 const jobPollers = new Map();
 
 let currentInspection = null;
 let inspectTimer = null;
+let analysisItems = [];
+let activeAnalysisIndex = 0;
 
 function setAnalysisState(text, type = "") {
   const node = $("analysis-state");
@@ -133,40 +136,144 @@ function resetInspection() {
   $("media-actions").classList.add("hidden");
   $("page-images-panel").classList.add("hidden");
   $("page-images-grid").innerHTML = "";
+  $("trim-panel").classList.add("hidden");
+  $("clip-enabled").checked = false;
+  $("trim-fields").classList.add("hidden");
 }
+
+function activeAnalysisItem() {
+  return analysisItems[activeAnalysisIndex] || null;
+}
+
+function activeUrl() {
+  const item = activeAnalysisItem();
+  if (item?.url) return item.url;
+  const urls = getUrls();
+  return urls[0];
+}
+
+function renderAnalysisQueue() {
+  const panel = $("analysis-queue");
+  const list = $("analysis-queue-list");
+
+  if (analysisItems.length <= 1) {
+    panel.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+
+  const finished = analysisItems.filter((item) => ["done", "error"].includes(item.status)).length;
+  $("analysis-queue-summary").textContent = `${finished} / ${analysisItems.length}`;
+
+  list.innerHTML = analysisItems.map((item, index) => {
+    const active = index === activeAnalysisIndex ? " active" : "";
+    const status = {
+      pending: "Pendiente",
+      analyzing: "Analizando…",
+      done: item.data?.cached ? "Listo · caché" : "Listo",
+      error: "Error",
+    }[item.status] || item.status;
+
+    return `
+      <button class="analysis-item${active}" data-analysis-index="${index}">
+        <span class="analysis-item-number">${index + 1}</span>
+        <span class="analysis-item-copy">
+          <strong>${escapeHtml(item.data?.title || shortUrl(item.url))}</strong>
+          <small>${escapeHtml(status)}${item.error ? ` · ${escapeHtml(item.error)}` : ""}</small>
+        </span>
+        <span class="analysis-item-platform">${escapeHtml(platformLabel(item.data?.platform || ""))}</span>
+      </button>
+    `;
+  }).join("");
+
+  panel.classList.remove("hidden");
+}
+
+function selectAnalysisItem(index) {
+  if (!Number.isInteger(index) || !analysisItems[index]) return;
+  activeAnalysisIndex = index;
+  renderAnalysisQueue();
+
+  const item = analysisItems[index];
+  if (item.data) {
+    currentInspection = item.data;
+    renderInspection(item.data);
+    setAnalysisState(item.data.cached ? "Listo · caché" : "Listo", "ok");
+  } else {
+    resetInspection();
+    setAnalysisState(item.status === "error" ? "Error" : "Pendiente", item.status === "error" ? "error" : "");
+    if (item.error) showMessage(item.error, "error");
+  }
+}
+
+$("analysis-queue-list").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-analysis-index]");
+  if (!button) return;
+  selectAnalysisItem(Number(button.dataset.analysisIndex));
+});
 
 async function inspectFirst({ silent = false } = {}) {
   const urls = getUrls();
-  if (urls.length !== 1) {
-    resetInspection();
-    setAnalysisState(urls.length > 1 ? `${urls.length} enlaces` : "Listo");
-    if (!silent) showMessage("La selección visual y los subtítulos se muestran cuando hay un solo enlace.");
-    return null;
-  }
-
   if (!silent) clearMessage();
 
   const inspectButton = $("inspect");
   inspectButton.disabled = true;
-  setAnalysisState("Analizando…", "busy");
+  analysisItems = urls.map((url) => ({ url, status: "pending", data: null, error: null }));
+  activeAnalysisIndex = 0;
+  resetInspection();
+  renderAnalysisQueue();
+
+  let firstSuccess = -1;
 
   try {
-    const data = await api("/api/analyze", {
-      method: "POST",
-      body: JSON.stringify({
-        url: urls[0],
-        playlist: $("playlist").checked,
-      }),
-    });
+    for (let index = 0; index < analysisItems.length; index += 1) {
+      const item = analysisItems[index];
+      item.status = "analyzing";
+      setAnalysisState(`Analizando ${index + 1} / ${analysisItems.length}…`, "busy");
+      renderAnalysisQueue();
 
-    currentInspection = data;
-    renderInspection(data);
-    setAnalysisState(data.cached ? "Listo · caché" : "Listo", "ok");
-    return data;
-  } catch (err) {
+      try {
+        const data = await api("/api/analyze", {
+          method: "POST",
+          body: JSON.stringify({
+            url: item.url,
+            playlist: $("playlist").checked,
+          }),
+        });
+
+        item.status = "done";
+        item.data = data;
+        if (firstSuccess < 0) {
+          firstSuccess = index;
+          activeAnalysisIndex = index;
+          currentInspection = data;
+          renderInspection(data);
+        }
+      } catch (err) {
+        item.status = "error";
+        item.error = err.message;
+      }
+
+      renderAnalysisQueue();
+    }
+
+    if (firstSuccess >= 0) {
+      selectAnalysisItem(firstSuccess);
+      const failures = analysisItems.filter((item) => item.status === "error").length;
+      setAnalysisState(
+        analysisItems.length > 1
+          ? `${analysisItems.length - failures} listos · ${failures} con error`
+          : (currentInspection?.cached ? "Listo · caché" : "Listo"),
+        failures ? "warn" : "ok",
+      );
+      if (failures && !silent) showMessage(`${failures} enlace(s) no pudieron analizarse. Los demás siguen disponibles.`, "error");
+      return currentInspection;
+    }
+
     resetInspection();
     setAnalysisState("No analizado", "error");
-    if (!silent) showMessage(err.message, "error");
+    const firstError = analysisItems.find((item) => item.error)?.error || "No se pudo analizar el contenido.";
+    if (!silent) showMessage(firstError, "error");
     return null;
   } finally {
     inspectButton.disabled = false;
@@ -220,10 +327,77 @@ function renderInspection(data) {
   $("playlist-control").classList.toggle("hidden", !showPlaylist);
   $("music-control").classList.toggle("hidden", data.platform !== "youtube");
 
+  const showTrim = ids.has("video") && !data.is_playlist;
+  $("trim-panel").classList.toggle("hidden", !showTrim);
+  $("trim-help").textContent = data.duration
+    ? `Duración detectada: ${formatDuration(data.duration)}. Activa el recorte si no quieres descargar el video completo.`
+    : "Activa el recorte si no quieres descargar el video completo.";
+
   renderCapabilities(data);
   renderPageImages(data.images || []);
   renderCarousel(data.entries || []);
   renderSubtitleTracks(data.subtitles || data.subtitle_tracks || []);
+  arrangePanels(data, ids);
+}
+
+function formatDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds || 0)));
+  const h = Math.floor(value / 3600);
+  const m = Math.floor((value % 3600) / 60);
+  const s = value % 60;
+  return h
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function arrangePanels(data, ids) {
+  const preview = $("preview");
+  const videoFirst = ids.has("video") || ids.has("web_video");
+  const imageFirst = data.kind === "artwork" || ids.has("image_max") || ids.has("images");
+  const order = videoFirst
+    ? ["trim-panel", "media-actions", "capabilities-panel", "carousel-panel", "page-images-panel", "subtitle-panel"]
+    : imageFirst
+      ? ["capabilities-panel", "page-images-panel", "carousel-panel", "media-actions", "subtitle-panel", "trim-panel"]
+      : ["capabilities-panel", "media-actions", "carousel-panel", "page-images-panel", "subtitle-panel", "trim-panel"];
+
+  let cursor = preview;
+  for (const id of order) {
+    const node = $(id);
+    if (!node) continue;
+    cursor.insertAdjacentElement("afterend", node);
+    cursor = node;
+  }
+}
+
+function parseClipTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
+
+  const parts = text.split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    throw new Error("Usa tiempos como 00:30 o 1:02:15.");
+  }
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  throw new Error("Usa tiempos como 00:30 o 1:02:15.");
+}
+
+function clipPayload() {
+  if (!$("clip-enabled").checked) {
+    return { clip_start: null, clip_end: null, precise_clip: false };
+  }
+
+  const start = parseClipTime($("clip-start").value) ?? 0;
+  const end = parseClipTime($("clip-end").value);
+  if (end !== null && end <= start) {
+    throw new Error("El final del recorte debe ser posterior al inicio.");
+  }
+  return {
+    clip_start: start,
+    clip_end: end,
+    precise_clip: $("precise-clip").checked,
+  };
 }
 
 function renderCapabilities(data) {
@@ -447,17 +621,12 @@ $("capability-buttons").addEventListener("click", async (event) => {
 
   const action = button.dataset.capAction;
   const sourceUrl = button.dataset.sourceUrl || "";
-  let urls;
+  let url;
 
   try {
-    urls = getUrls();
+    url = activeUrl();
   } catch (err) {
     showMessage(err.message, "error");
-    return;
-  }
-
-  if (urls.length !== 1) {
-    showMessage("Estas opciones se usan con un enlace a la vez.", "error");
     return;
   }
 
@@ -471,45 +640,21 @@ $("capability-buttons").addEventListener("click", async (event) => {
       const result = await api("/api/images/download", {
         method: "POST",
         body: JSON.stringify({
-          urls: [sourceUrl || currentInspection.final_url || urls[0]],
-          page_url: urls[0],
+          urls: [sourceUrl || currentInspection.final_url || url],
+          page_url: url,
         }),
       });
       showMessage(`Imagen guardada: ${result.files?.[0] || "TikSave/Images"}`, "ok");
       return;
     }
 
-    if (action === "image_max") {
-      if (button.dataset.strategy === "dezoom") {
-        if (button.dataset.needsInstall === "1") {
-          showMessage("Instalando el motor de mosaicos la primera vez…");
-          await api("/api/dezoom/install", { method: "POST", body: "{}" });
-          button.dataset.needsInstall = "0";
-        }
-
-        const data = await api("/api/dezoom/download", {
-          method: "POST",
-          body: JSON.stringify({
-            source_url: sourceUrl || currentInspection.final_url || urls[0],
-            page_url: urls[0],
-            output_format: "jpg",
-          }),
-        });
-
-        jobsBox.innerHTML = "";
-        jobsBox.classList.remove("hidden");
-        createJobCard(data.id, urls[0], 1, 1);
-        startPolling(data.id);
-        showMessage("Reconstrucción de máxima resolución iniciada con Dezoomify.", "ok");
-        return;
-      }
-
+    if (action === "image_max" && button.dataset.strategy !== "dezoom") {
       showMessage("TikSave está probando variantes de mayor resolución…");
       const result = await api("/api/image/download", {
         method: "POST",
         body: JSON.stringify({
-          url: sourceUrl || currentInspection.images?.[0]?.url || urls[0],
-          page_url: urls[0],
+          url: sourceUrl || currentInspection.images?.[0]?.url || url,
+          page_url: url,
         }),
       });
       const resolution = result.resolution?.filter(Boolean).length === 2
@@ -519,7 +664,7 @@ $("capability-buttons").addEventListener("click", async (event) => {
       return;
     }
 
-    if (action === "dezoom") {
+    if (action === "image_max" || action === "dezoom") {
       if (button.dataset.needsInstall === "1") {
         showMessage("Instalando el motor de mosaicos la primera vez…");
         await api("/api/dezoom/install", { method: "POST", body: "{}" });
@@ -529,36 +674,37 @@ $("capability-buttons").addEventListener("click", async (event) => {
       const data = await api("/api/dezoom/download", {
         method: "POST",
         body: JSON.stringify({
-          source_url: sourceUrl || currentInspection.zoom_sources?.[0]?.url,
-          page_url: urls[0],
+          source_url: sourceUrl || currentInspection.zoom_sources?.[0]?.url || currentInspection.final_url || url,
+          page_url: url,
           output_format: "jpg",
         }),
       });
 
-      jobsBox.innerHTML = "";
-      jobsBox.classList.remove("hidden");
-      createJobCard(data.id, urls[0], 1, 1);
+      jobsPanel.classList.remove("hidden");
+      createJobCard(data.id, url, 1, 1);
       startPolling(data.id);
-      showMessage("Reconstrucción de alta resolución iniciada.", "ok");
+      window.open(`/viewer/${encodeURIComponent(data.id)}`, "_blank", "noopener");
+      showMessage("Reconstrucción iniciada. Abrí un visor que mostrará la imagen cuando esté lista.", "ok");
       return;
     }
 
     if (action === "web_video" || action === "web_audio") {
+      const clip = action === "web_video" ? clipPayload() : {};
       const data = await api("/api/browser-media", {
         method: "POST",
         body: JSON.stringify({
-          page_url: urls[0],
+          page_url: url,
           media_url: sourceUrl || null,
           mode: action === "web_video" ? "video" : "audio",
           quality: $("quality").value,
+          ...clip,
         }),
       });
 
-      jobsBox.innerHTML = "";
-      jobsBox.classList.remove("hidden");
-      createJobCard(data.id, urls[0], 1, 1);
+      jobsPanel.classList.remove("hidden");
+      createJobCard(data.id, url, 1, 1);
       startPolling(data.id);
-      showMessage("Descarga iniciada.", "ok");
+      showMessage("Descarga añadida a trabajos.", "ok");
     }
   } catch (err) {
     showMessage(err.message, "error");
@@ -572,14 +718,21 @@ urlsInput.addEventListener("input", () => {
     try {
       urls = getUrls();
     } catch {
+      analysisItems = [];
+      $("analysis-queue").classList.add("hidden");
       resetInspection();
+      setAnalysisState("Listo");
       return;
     }
 
     if (urls.length === 1) {
       inspectFirst({ silent: true });
     } else {
+      analysisItems = urls.map((url) => ({ url, status: "pending", data: null, error: null }));
+      activeAnalysisIndex = 0;
       resetInspection();
+      renderAnalysisQueue();
+      setAnalysisState(`${urls.length} enlaces · pulsa Analizar`);
     }
   }, 550);
 });
@@ -595,9 +748,9 @@ $("playlist").addEventListener("change", () => {
 async function startDownloads(mode) {
   clearMessage();
 
-  let urls;
+  let url;
   try {
-    urls = getUrls();
+    url = activeUrl();
   } catch (err) {
     showMessage(err.message, "error");
     return;
@@ -608,7 +761,7 @@ async function startDownloads(mode) {
   const musicMetadata = mode === "mp3" && $("music-metadata").checked;
   let selectedItems = null;
 
-  if (urls.length === 1 && currentInspection?.entries?.length > 1) {
+  if (currentInspection?.entries?.length > 1) {
     selectedItems = selectedCarouselItems();
     if (!selectedItems?.length) {
       showMessage("Selecciona al menos un elemento de la publicación.", "error");
@@ -616,46 +769,30 @@ async function startDownloads(mode) {
     }
   }
 
-  jobsBox.innerHTML = "";
-  jobsBox.classList.remove("hidden");
+  try {
+    const clip = mode === "video" ? clipPayload() : {};
+    const data = await api("/api/download", {
+      method: "POST",
+      body: JSON.stringify({
+        url,
+        mode,
+        quality,
+        playlist,
+        selected_items: selectedItems,
+        music_metadata: musicMetadata,
+        ...clip,
+      }),
+    });
 
-  for (const timer of jobPollers.values()) clearInterval(timer);
-  jobPollers.clear();
-
-  let started = 0;
-  let failed = 0;
-
-  const requests = urls.map(async (url, index) => {
-    try {
-      const data = await api("/api/download", {
-        method: "POST",
-        body: JSON.stringify({
-          url,
-          mode,
-          quality,
-          playlist,
-          selected_items: urls.length === 1 ? selectedItems : null,
-          music_metadata: musicMetadata,
-        }),
-      });
-
-      started += 1;
-      createJobCard(data.id, url, index + 1, urls.length);
-      startPolling(data.id);
-    } catch (err) {
-      failed += 1;
-      createRejectedCard(url, err.message, index + 1, urls.length);
-    }
-  });
-
-  await Promise.all(requests);
-
-  showMessage(
-    failed
-      ? `${started} descarga(s) iniciada(s); ${failed} enlace(s) rechazado(s).`
-      : `${started} descarga(s) iniciada(s). Puedes ver el progreso debajo.`,
-    failed ? "error" : "ok",
-  );
+    jobsPanel.classList.remove("hidden");
+    createJobCard(data.id, url, 1, 1);
+    startPolling(data.id);
+    showMessage("Trabajo añadido. Puedes seleccionar otro enlace y seguir agregando descargas.", "ok");
+  } catch (err) {
+    createRejectedCard(url, err.message, 1, 1);
+    jobsPanel.classList.remove("hidden");
+    showMessage(err.message, "error");
+  }
 }
 
 document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -673,10 +810,7 @@ $("download-subtitles").addEventListener("click", async () => {
     return;
   }
 
-  if (urls.length !== 1) {
-    showMessage("Para elegir idiomas de subtítulos usa un enlace por vez.", "error");
-    return;
-  }
+  const url = activeAnalysisItem()?.url || urls[0];
 
   if (!currentInspection) {
     await inspectFirst();
@@ -698,14 +832,13 @@ $("download-subtitles").addEventListener("click", async () => {
     }
   }
 
-  jobsBox.innerHTML = "";
-  jobsBox.classList.remove("hidden");
+  jobsPanel.classList.remove("hidden");
 
   try {
     const data = await api("/api/download", {
       method: "POST",
       body: JSON.stringify({
-        url: urls[0],
+        url,
         mode: "subtitles",
         playlist: $("playlist").checked,
         selected_items: selectedItems,
@@ -714,7 +847,7 @@ $("download-subtitles").addEventListener("click", async () => {
       }),
     });
 
-    createJobCard(data.id, urls[0], 1, 1);
+    createJobCard(data.id, url, 1, 1);
     startPolling(data.id);
     showMessage("Descarga de subtítulos iniciada.", "ok");
   } catch (err) {
@@ -722,7 +855,16 @@ $("download-subtitles").addEventListener("click", async () => {
   }
 });
 
-function createJobCard(jobId, url, position, total) {
+function updateJobsCount() {
+  const cards = [...jobsBox.querySelectorAll(".job-card")];
+  const active = cards.filter((card) => !card.classList.contains("done") && !card.classList.contains("failed") && !card.classList.contains("cancelled")).length;
+  $("jobs-count").textContent = active ? `${active} activo${active === 1 ? "" : "s"}` : `${cards.length} trabajo${cards.length === 1 ? "" : "s"}`;
+  jobsPanel.classList.toggle("hidden", cards.length === 0);
+}
+
+function createJobCard(jobId, url, position = 1, total = 1) {
+  if (document.getElementById(`job-${jobId}`)) return;
+
   const card = document.createElement("article");
   card.className = "job-card";
   card.id = `job-${jobId}`;
@@ -730,36 +872,45 @@ function createJobCard(jobId, url, position, total) {
   card.innerHTML = `
     <div class="job-head">
       <div class="job-title">
-        <strong>${position}/${total} · ${escapeHtml(shortUrl(url))}</strong>
+        <strong>${total > 1 ? `${position}/${total} · ` : ""}${escapeHtml(shortUrl(url))}</strong>
         <span data-role="status">En cola…</span>
       </div>
       <span data-role="percent">0%</span>
     </div>
     <div class="track"><div data-role="bar" class="bar"></div></div>
     <div data-role="details" class="details"></div>
+    <div class="job-actions">
+      <button class="ghost small-button" data-job-view="${jobId}" hidden>Ver progreso</button>
+      <button class="ghost small-button danger-button" data-job-cancel="${jobId}">Cancelar</button>
+    </div>
   `;
 
-  jobsBox.appendChild(card);
+  jobsBox.prepend(card);
+  jobsPanel.classList.remove("hidden");
+  updateJobsCount();
 }
 
-function createRejectedCard(url, error, position, total) {
+function createRejectedCard(url, error, position = 1, total = 1) {
   const card = document.createElement("article");
   card.className = "job-card failed";
   card.innerHTML = `
     <div class="job-head">
       <div class="job-title">
-        <strong>${position}/${total} · ${escapeHtml(shortUrl(url))}</strong>
+        <strong>${total > 1 ? `${position}/${total} · ` : ""}${escapeHtml(shortUrl(url))}</strong>
         <span>Error antes de iniciar</span>
       </div>
       <span>—</span>
     </div>
     <div class="details error-text">${escapeHtml(error)}</div>
   `;
-  jobsBox.appendChild(card);
+  jobsBox.prepend(card);
+  updateJobsCount();
 }
 
 function startPolling(jobId) {
-  const timer = setInterval(() => updateJob(jobId), 700);
+  const previous = jobPollers.get(jobId);
+  if (previous) clearInterval(previous);
+  const timer = setInterval(() => updateJob(jobId), 650);
   jobPollers.set(jobId, timer);
   updateJob(jobId);
 }
@@ -772,28 +923,36 @@ async function updateJob(jobId) {
   const percentEl = card.querySelector('[data-role="percent"]');
   const barEl = card.querySelector('[data-role="bar"]');
   const detailsEl = card.querySelector('[data-role="details"]');
+  const cancelButton = card.querySelector("[data-job-cancel]");
+  const viewButton = card.querySelector("[data-job-view]");
 
   try {
     const data = await api(`/api/jobs/${jobId}`);
     const pct = Number(data.progress || 0);
 
-    barEl.style.width = `${pct}%`;
-    percentEl.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+    if (data.progress_mode === "indeterminate") {
+      barEl.classList.add("indeterminate");
+      barEl.style.width = "";
+      percentEl.textContent = "Trabajando";
+    } else {
+      barEl.classList.remove("indeterminate");
+      barEl.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+      percentEl.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+    }
 
     const labels = {
       queued: "En cola…",
       starting: "Preparando…",
       downloading: "Descargando…",
-      processing: "Procesando archivo…",
+      processing: "Procesando…",
+      cancelling: "Cancelando…",
+      cancelled: "Cancelado",
       done: "Terminado",
       error: "Error",
     };
 
-    let status = labels[data.status] || data.status;
-    if (data.total_items && data.current_index) {
-      status += ` · ${data.current_index}/${data.total_items}`;
-    }
-
+    let status = data.phase || labels[data.status] || data.status;
+    if (data.total_items && data.current_index) status += ` · ${data.current_index}/${data.total_items}`;
     statusEl.textContent = status;
 
     detailsEl.textContent = [
@@ -803,21 +962,28 @@ async function updateJob(jobId) {
       data.metadata_note,
       data.speed,
       data.eta && `ETA ${data.eta}`,
-      data.filename,
+      data.status === "done" ? data.filename : null,
+      data.error,
     ].filter(Boolean).join(" · ");
 
-    if (data.status === "done" || data.status === "error") {
+    const terminal = ["done", "error", "cancelled"].includes(data.status);
+    cancelButton.hidden = terminal || !data.can_cancel;
+    if (data.platform === "dezoom") {
+      viewButton.hidden = false;
+      viewButton.textContent = data.status === "done" ? "Abrir imagen" : "Ver progreso";
+    }
+
+    if (terminal) {
       const timer = jobPollers.get(jobId);
       if (timer) clearInterval(timer);
       jobPollers.delete(jobId);
 
-      if (data.status === "done") {
-        card.classList.add("done");
-      } else {
-        card.classList.add("failed");
-        detailsEl.textContent = data.error || "La descarga falló.";
-      }
+      if (data.status === "done") card.classList.add("done");
+      if (data.status === "error") card.classList.add("failed");
+      if (data.status === "cancelled") card.classList.add("cancelled");
     }
+
+    updateJobsCount();
   } catch (err) {
     const timer = jobPollers.get(jobId);
     if (timer) clearInterval(timer);
@@ -825,6 +991,41 @@ async function updateJob(jobId) {
     card.classList.add("failed");
     statusEl.textContent = "Error";
     detailsEl.textContent = err.message;
+    updateJobsCount();
+  }
+}
+
+jobsBox.addEventListener("click", async (event) => {
+  const cancel = event.target.closest("[data-job-cancel]");
+  if (cancel) {
+    cancel.disabled = true;
+    try {
+      await api(`/api/jobs/${encodeURIComponent(cancel.dataset.jobCancel)}/cancel`, { method: "POST", body: "{}" });
+      await updateJob(cancel.dataset.jobCancel);
+    } catch (err) {
+      cancel.disabled = false;
+      showMessage(err.message, "error");
+    }
+    return;
+  }
+
+  const view = event.target.closest("[data-job-view]");
+  if (view) {
+    window.open(`/viewer/${encodeURIComponent(view.dataset.jobView)}`, "_blank", "noopener");
+  }
+});
+
+async function restoreJobs() {
+  try {
+    const result = await api("/api/jobs?limit=20");
+    const jobs = result.jobs || [];
+    for (const job of jobs.reverse()) {
+      createJobCard(job.id, job.url || "Trabajo", 1, 1);
+      await updateJob(job.id);
+      if (!["done", "error", "cancelled"].includes(job.status)) startPolling(job.id);
+    }
+  } catch {
+    // No previous in-memory jobs.
   }
 }
 
@@ -850,12 +1051,10 @@ $("paste").addEventListener("click", async () => {
 
 $("clear").addEventListener("click", () => {
   urlsInput.value = "";
+  analysisItems = [];
+  activeAnalysisIndex = 0;
+  $("analysis-queue").classList.add("hidden");
   resetInspection();
-  jobsBox.innerHTML = "";
-  jobsBox.classList.add("hidden");
-
-  for (const timer of jobPollers.values()) clearInterval(timer);
-  jobPollers.clear();
 
   clearMessage();
   setAnalysisState("Listo");
@@ -881,6 +1080,10 @@ $("open-log").addEventListener("click", async () => {
 });
 
 
+
+$("clip-enabled").addEventListener("change", () => {
+  $("trim-fields").classList.toggle("hidden", !$("clip-enabled").checked);
+});
 
 async function loadSystemStatus() {
   try {
@@ -922,4 +1125,5 @@ async function prefillFromSharedUrl() {
 }
 
 loadSystemStatus();
+restoreJobs();
 prefillFromSharedUrl();
