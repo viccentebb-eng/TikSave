@@ -30,6 +30,9 @@ INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
 FACEBOOK_HOSTS = {
     "facebook.com", "www.facebook.com", "m.facebook.com", "mbasic.facebook.com", "fb.watch",
 }
+DOUYIN_HOSTS = {
+    "douyin.com", "www.douyin.com", "m.douyin.com", "v.douyin.com", "iesdouyin.com",
+}
 
 DEFAULT_USER_AGENTS = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0",
@@ -55,6 +58,8 @@ def detect_platform(value: str) -> str | None:
         return "instagram"
     if host in FACEBOOK_HOSTS or host.endswith(".facebook.com"):
         return "facebook"
+    if host in DOUYIN_HOSTS or host.endswith(".douyin.com") or host.endswith(".iesdouyin.com"):
+        return "douyin"
     return None
 
 
@@ -64,7 +69,7 @@ def validate_supported_url(value: str) -> str:
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("El enlace debe comenzar con http:// o https://")
     if not detect_platform(value):
-        raise ValueError("Solo se admiten enlaces de TikTok, YouTube, Instagram o Facebook.")
+        raise ValueError("Solo se admiten enlaces de TikTok, Douyin, YouTube, Instagram o Facebook.")
     return value
 
 
