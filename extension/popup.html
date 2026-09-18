@@ -95,12 +95,38 @@
       <button id="download-browser-media">Descargar</button>
     </section>
 
-    <section id="image-card" class="media-card hidden">
-      <div>
-        <strong id="image-title">Imágenes detectadas</strong>
-        <small id="image-info">Publicación, carrusel o Story.</small>
+    <section id="image-card" class="picker-card hidden">
+      <div class="picker-head">
+        <div>
+          <strong id="image-title">Imágenes detectadas</strong>
+          <small id="image-info">Selecciona cuáles quieres guardar.</small>
+        </div>
+        <div class="picker-actions">
+          <button id="images-all" type="button">Todas</button>
+          <button id="images-none" type="button">Ninguna</button>
+        </div>
       </div>
-      <button id="download-images">Descargar</button>
+      <div id="image-grid" class="image-grid"></div>
+      <button id="download-images" class="wide-action" type="button">Descargar seleccionadas</button>
+    </section>
+
+    <section id="dezoom-card" class="picker-card hidden">
+      <div class="picker-head">
+        <div>
+          <strong>Imagen de alta resolución</strong>
+          <small id="dezoom-info">Visor por mosaicos detectado.</small>
+        </div>
+      </div>
+      <div id="dezoom-source" class="detected-source"></div>
+      <div class="dezoom-actions">
+        <select id="dezoom-format" aria-label="Formato de salida">
+          <option value="jpg">JPG</option>
+          <option value="png">PNG</option>
+          <option value="webp">WebP</option>
+        </select>
+        <button id="dezoom-download" type="button">Reconstruir máxima resolución</button>
+      </div>
+      <button id="dezoom-install" class="wide-action secondary-action hidden" type="button">Instalar motor de imágenes</button>
     </section>
 
     <section class="utility-card">
