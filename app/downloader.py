@@ -398,6 +398,13 @@ class TikSaveDownloader:
     def _agents_for(platform: str) -> tuple[str, ...]:
         return browser_user_agents() if platform == "tiktok" else (browser_user_agents()[0],)
 
+    @classmethod
+    def _attempts_for(cls, platform: str) -> list[tuple[str, bool]]:
+        attempts = [(agent, False) for agent in cls._agents_for(platform)]
+        if platform in {"douyin", "instagram", "facebook", "tiktok"}:
+            attempts.append((browser_user_agents()[0], True))
+        return attempts
+
     def inspect(self, url: str, playlist: bool = False) -> dict[str, Any]:
         url = validate_supported_url(url)
         platform = detect_platform(url)
@@ -406,11 +413,16 @@ class TikSaveDownloader:
 
         last_error: Exception | None = None
 
-        for user_agent in self._agents_for(platform):
+        attempts = self._attempts_for(platform)
+
+        for user_agent, use_firefox_session in attempts:
             opts = {
                 **self._base_options(user_agent, playlist=playlist),
                 "skip_download": True,
             }
+            if use_firefox_session:
+                opts["cookiesfrombrowser"] = ("firefox",)
+
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -437,11 +449,11 @@ class TikSaveDownloader:
                         for index, entry in enumerate(entries, start=1)
                     ][:100],
                     "subtitles": _subtitle_tracks(subtitle_source),
+                    "session_source": "firefox" if use_firefox_session else None,
                 }
             except Exception as exc:
                 last_error = exc
-                if platform != "tiktok" or not is_retryable_tiktok_error(exc):
-                    break
+                continue
 
         if last_error:
             raise last_error
@@ -1003,7 +1015,9 @@ class TikSaveDownloader:
 
         last_error: Exception | None = None
 
-        for attempt, user_agent in enumerate(self._agents_for(platform), start=1):
+        attempts = self._attempts_for(platform)
+
+        for attempt, (user_agent, use_firefox_session) in enumerate(attempts, start=1):
             common: dict[str, Any] = {
                 **self._base_options(user_agent, playlist=playlist),
                 **mode_options,
@@ -1013,6 +1027,9 @@ class TikSaveDownloader:
                 "windowsfilenames": True,
                 "overwrites": False,
             }
+
+            if use_firefox_session:
+                common["cookiesfrombrowser"] = ("firefox",)
 
             if job.get("referer"):
                 headers = dict(common.get("http_headers") or {})
@@ -1121,13 +1138,15 @@ class TikSaveDownloader:
                     return
 
                 last_error = exc
-                if (
-                    platform != "tiktok"
-                    or not is_retryable_tiktok_error(exc)
-                    or attempt >= len(self._agents_for(platform))
-                ):
+                if attempt >= len(attempts):
                     break
-                self.jobs.update(job_id, status="starting", progress=0.0, error=None)
+                self.jobs.update(
+                    job_id,
+                    status="starting",
+                    phase="Reintentando con sesión de Firefox…" if not use_firefox_session else "Reintentando…",
+                    progress=0.0,
+                    error=None,
+                )
 
         error_text = clean_error(last_error or "Error desconocido")
 
@@ -1143,8 +1162,16 @@ class TikSaveDownloader:
             or "authentication" in error_text.lower()
         ):
             error_text = (
-                f"{platform.title()} pidió iniciar sesión para este contenido. TikSave "
-                "solo está usando acceso público en esta versión."
+                f"{platform.title()} requiere una sesión válida. TikSave intentó reutilizar "
+                "la sesión local de Firefox, pero no pudo leer contenido descargable. "
+                "Abre el contenido en Firefox y vuelve a intentarlo."
+            )
+
+        if platform == "douyin" and "cookies" in error_text.lower():
+            error_text = (
+                "Douyin exige cookies frescas para este video. TikSave intentó reutilizar "
+                "las cookies locales de Firefox. Abre el enlace en Douyin dentro de Firefox, "
+                "deja que cargue el video y vuelve a analizarlo."
             )
 
         self.jobs.update(

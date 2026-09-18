@@ -881,6 +881,12 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     case "getJob":
       return api(`/api/jobs/${message.jobId}`);
 
+    case "cancelJob":
+      return api(`/api/jobs/${message.jobId}/cancel`, {
+        method: "POST",
+        body: "{}",
+      });
+
     case "getActiveJobs":
       return [...activeJobs.values()];
 

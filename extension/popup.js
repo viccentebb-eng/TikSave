@@ -492,6 +492,22 @@ function renderDezoomSources(sources) {
 
   const source = detectedZoomSources[0];
   card.classList.remove("hidden");
+
+  // High-resolution image actions should be near the top, not buried below
+  // video controls that are irrelevant for an artwork viewer.
+  const sourceCard = document.querySelector(".source-card");
+  if (sourceCard && sourceCard.nextElementSibling !== card) {
+    sourceCard.insertAdjacentElement("afterend", card);
+  }
+
+  if (/^https?:\/\/artsandculture\.google\.com\/asset(?:\/|$)/i.test(currentUrl)) {
+    document.querySelector(".block-field")?.classList.add("hidden");
+    $("collection-row").classList.add("hidden");
+    $("metadata-row").classList.add("hidden");
+    $("clip-row").classList.add("hidden");
+    $("clip-panel").classList.add("hidden");
+    document.querySelector(".buttons")?.classList.add("hidden");
+  }
   $("dezoom-info").textContent = `${source.kind} detectado. TikSave puede reconstruir la resolución máxima.`;
   $("dezoom-source").textContent = source.url;
   $("dezoom-download").disabled = !dezoomInstalled;
@@ -579,7 +595,9 @@ function statusLabel(status) {
     queued: "En cola",
     starting: "Preparando",
     downloading: "Descargando",
-    processing: "Procesando archivo",
+    processing: "Procesando",
+    cancelling: "Cancelando",
+    cancelled: "Cancelado",
     done: "Terminado",
     error: "Error",
   }[status] || status;
@@ -589,21 +607,43 @@ function renderJob(job) {
   if (!job) return;
 
   activeJobId = job.id;
-  $("progress-card").classList.remove("hidden");
+  const card = $("progress-card");
+  card.classList.remove("hidden");
+
+  if (job.platform === "dezoom") {
+    const dezoomCard = $("dezoom-card");
+    if (!dezoomCard.classList.contains("hidden")) {
+      dezoomCard.insertAdjacentElement("afterend", card);
+    }
+  }
 
   const pct = Number(job.progress || 0);
-  $("progress-percent").textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
-  $("progress-bar").style.width = `${Math.min(100, Math.max(0, pct))}%`;
-  $("progress-title").textContent = job.title || "Descarga de TikSave";
-  $("progress-status").textContent = statusLabel(job.status);
+  const bar = $("progress-bar");
+
+  if (job.progress_mode === "indeterminate") {
+    $("progress-percent").textContent = "Trabajando";
+    bar.classList.add("indeterminate");
+    bar.style.width = "";
+  } else {
+    $("progress-percent").textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+    bar.classList.remove("indeterminate");
+    bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+  }
+
+  $("progress-title").textContent = job.title || (job.platform === "dezoom" ? "Imagen de alta resolución" : "Descarga de TikSave");
+  $("progress-status").textContent = job.phase || statusLabel(job.status);
   $("progress-details").textContent = [
     job.speed,
     job.eta && `ETA ${job.eta}`,
     job.metadata_note,
-    job.filename,
+    job.status === "done" ? job.filename : null,
     job.error,
   ].filter(Boolean).join(" · ");
 
+  const terminal = ["done", "error", "cancelled"].includes(job.status);
+  $("cancel-job").classList.toggle("hidden", terminal || !job.can_cancel);
+  $("view-job").classList.toggle("hidden", job.platform !== "dezoom");
+  $("view-job").textContent = job.status === "done" ? "Abrir imagen" : "Ver progreso";
   $("open-folder").classList.toggle("hidden", job.status !== "done");
 
   if (job.notification_error) {
@@ -613,6 +653,9 @@ function renderJob(job) {
     );
   } else if (job.status === "done") {
     say("Archivo listo.", "ok");
+    stopPolling();
+  } else if (job.status === "cancelled") {
+    say("Trabajo cancelado.");
     stopPolling();
   } else if (job.status === "error") {
     say(job.error || "La descarga terminó con un error.", "error");
@@ -918,7 +961,9 @@ $("dezoom-install").addEventListener("click", async () => {
 });
 
 $("dezoom-download").addEventListener("click", async () => {
-  const source = detectedZoomSources[0];
+  const source = /^https?:\/\/artsandculture\.google\.com\/asset(?:\/|$)/i.test(currentUrl)
+    ? { url: currentUrl.split("#")[0], kind: "Google Arts & Culture" }
+    : detectedZoomSources[0];
   if (!source) {
     say("No hay un visor de alta resolución detectado.", "error");
     return;
@@ -936,10 +981,33 @@ $("dezoom-download").addEventListener("click", async () => {
 
     renderJob(job);
     startPolling(job.id);
-    say("Reconstrucción de la imagen iniciada.", "ok");
+    await browser.tabs.create({
+      url: `http://127.0.0.1:8173/viewer/${encodeURIComponent(job.id)}`,
+    });
+    say("Reconstrucción iniciada. El visor se actualizará cuando la imagen esté lista.", "ok");
   } catch (error) {
     say(error?.message || "No se pudo iniciar la reconstrucción de la imagen.", "error");
   }
+});
+
+$("cancel-job").addEventListener("click", async () => {
+  if (!activeJobId) return;
+  $("cancel-job").disabled = true;
+  try {
+    const job = await send({ type: "cancelJob", jobId: activeJobId });
+    renderJob(job);
+  } catch (error) {
+    say(error?.message || "No se pudo cancelar el trabajo.", "error");
+  } finally {
+    $("cancel-job").disabled = false;
+  }
+});
+
+$("view-job").addEventListener("click", async () => {
+  if (!activeJobId) return;
+  await browser.tabs.create({
+    url: `http://127.0.0.1:8173/viewer/${encodeURIComponent(activeJobId)}`,
+  });
 });
 
 $("open-folder").addEventListener("click", async () => {
