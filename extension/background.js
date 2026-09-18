@@ -585,11 +585,17 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
       const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
       const detected = (zoomSourcesByTab.get(tab && tab.id) || [])[0];
+      const googleArtsPage = /^https?:\/\/artsandculture\.google\.com\/asset(?:\/|$)/i.test(pageUrl || "");
+      const autoDezoomSource = detected?.kind === "Google Arts & Culture"
+        ? detected.url
+        : googleArtsPage
+          ? pageUrl.split("#")[0]
+          : null;
 
-      if (detected?.kind === "Google Arts & Culture") {
+      if (autoDezoomSource) {
         await ensureDezoomEngine();
         const job = await startJob("/api/dezoom/download", {
-          source_url: detected.url,
+          source_url: autoDezoomSource,
           page_url: pageUrl,
           output_format: "jpg",
         });

@@ -1001,10 +1001,21 @@ async function init() {
     }
 
     try {
-      const sources = await send({
+      const detectedSources = await send({
         type: "getDetectedZoomSources",
         tabId: currentTab.id,
       });
+      const googleArtsViewer = /^https?:\/\/artsandculture\.google\.com\/asset(?:\/|$)/i.test(currentUrl)
+        ? [{
+            url: currentUrl.split("#")[0],
+            kind: "Google Arts & Culture",
+            score: 1000,
+          }]
+        : [];
+      const sources = [...googleArtsViewer, ...(detectedSources || [])]
+        .filter((item, index, all) =>
+          all.findIndex((candidate) => candidate.url === item.url) === index
+        );
       renderDezoomSources(sources);
     } catch {
       $("dezoom-card").classList.add("hidden");
