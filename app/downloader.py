@@ -743,8 +743,13 @@ class TikSaveDownloader:
         mode_options: dict[str, Any] = {}
 
         if mode == "video":
+            direct_browser_media = (
+                platform == "web"
+                and job.get("referer")
+                and str(job["referer"]) != str(job["url"])
+            )
             mode_options.update({
-                "format": video_format(job["quality"]),
+                "format": "best" if direct_browser_media else video_format(job["quality"]),
                 "merge_output_format": "mp4",
             })
         elif mode == "mp3":
