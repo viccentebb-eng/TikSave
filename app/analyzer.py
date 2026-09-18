@@ -267,14 +267,24 @@ def _meta_image(parser: PageParser, final_url: str) -> list[dict[str, Any]]:
 
 def _extract_urls(text: str, final_url: str) -> list[str]:
     candidates: list[str] = []
+    normalized = (
+        text.replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("\\u003d", "=")
+        .replace("\\u003D", "=")
+        .replace("\\u002f", "/")
+        .replace("\\u002F", "/")
+        .replace("\\u003a", ":")
+        .replace("\\u003A", ":")
+    )
+
     patterns = [
         r'https?://[^"\'<>\\\s]+',
-        r'https?:\\?/\\?/[^"\'<>\\\s]+',
         r'//[^"\'<>\\\s]+(?:\.m3u8|\.mpd|/info\.json|\.dzi|/ImageProperties\.xml)[^"\'<>\\\s]*',
     ]
     for pattern in patterns:
-        for match in re.findall(pattern, text, flags=re.I):
-            value = str(match).replace("\\/", "/").replace("\\u0026", "&")
+        for match in re.findall(pattern, normalized, flags=re.I):
+            value = str(match)
             if value.startswith("//"):
                 value = f"{urlparse(final_url).scheme}:{value}"
             value = html.unescape(value)
