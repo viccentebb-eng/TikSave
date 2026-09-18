@@ -359,7 +359,16 @@ Omitir motores externos:
 .\scripts\install-windows.ps1 -SkipEngines
 ```
 
-### Licencias
+#### Parche 0.13.1
+
+- Corrige el instalador de motores en PowerShell: ya no pasa scripts Python multilínea mediante `python -c`, evitando que PowerShell rompa las comillas.
+- `dezoomify-rs` se instala mediante `python -m app.setup_engines install-dezoomify`.
+- La verificación final usa el mismo helper y devuelve JSON válido.
+- **Abrir imagen original** en Firefox ahora usa un visor flotante sobre la página, con zoom, ajustar, tamaño real, descarga y opción para abrir una pestaña.
+- Instagram, TikTok y Douyin incorporan un escáner de imágenes/carruseles. En Instagram intenta recorrer automáticamente el carrusel y regresar al elemento inicial para descubrir imágenes sin que tengas que previsualizarlas manualmente.
+- Si Instagram solo entrega al backend su pantalla de login/interfaz, la app ya no muestra logos y gráficos de Instagram como si fueran fotos del post; indica usar la extensión con la sesión abierta.
+
+## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
 
