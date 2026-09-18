@@ -6,6 +6,7 @@ let activeJobId = null;
 let pollTimer = null;
 let browserMedia = null;
 let popupGuardEnabled = false;
+let cleanModeEnabled = false;
 
 function supportedUrl(url) {
   try {
@@ -229,6 +230,30 @@ async function detectPlayingMedia(tabId) {
       .map((item) => item.result)
       .filter((item) => item?.found)
       .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    let networkStreams = [];
+    try {
+      networkStreams = await send({ type: "getDetectedStreams", tabId });
+    } catch {
+      networkStreams = [];
+    }
+
+    if (networkStreams?.length) {
+      const stream = networkStreams[0];
+      candidates.push({
+        found: true,
+        playing: true,
+        protected: false,
+        source: stream.url,
+        sourceKind: stream.type,
+        title: document.title || "Stream detectado",
+        duration: null,
+        currentTime: null,
+        score: 160000000,
+      });
+
+      candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
 
     return candidates[0] || { found: false };
   } catch {
@@ -579,6 +604,43 @@ $("popup-guard").addEventListener("click", async () => {
   );
 });
 
+$("clean-mode").addEventListener("click", async () => {
+  try {
+    const result = await send({
+      type: "setCleanMode",
+      enabled: !cleanModeEnabled,
+    });
+
+    cleanModeEnabled = Boolean(result?.enabled);
+    $("clean-mode").textContent = cleanModeEnabled ? "Desactivar" : "Activar";
+
+    say(
+      cleanModeEnabled
+        ? "Modo limpio activado: TikSave bloqueará redes publicitarias y trackers comunes."
+        : "Modo limpio desactivado.",
+      "ok",
+    );
+  } catch (error) {
+    say(error?.message || "No se pudo cambiar el modo limpio.", "error");
+  }
+});
+
+$("reader-mode").addEventListener("click", async () => {
+  if (!currentTab?.id) return;
+
+  if (!currentTab.isArticle && !currentTab.isInReaderMode) {
+    say("Firefox no reconoce esta página como un artículo compatible con Modo lectura.", "error");
+    return;
+  }
+
+  try {
+    await browser.tabs.toggleReaderMode(currentTab.id);
+    window.close();
+  } catch (error) {
+    say(error?.message || "No se pudo abrir el Modo lectura.", "error");
+  }
+});
+
 $("test-notification").addEventListener("click", async () => {
   try {
     const result = await send({ type: "testNotification" });
@@ -620,6 +682,17 @@ async function init() {
   $("url").textContent = currentUrl || "No se pudo leer la pestaña actual.";
   configureContext();
   await refreshPopupGuardState();
+
+  try {
+    const cleanMode = await send({ type: "getCleanMode" });
+    cleanModeEnabled = Boolean(cleanMode?.enabled);
+    $("clean-mode").textContent = cleanModeEnabled ? "Desactivar" : "Activar";
+  } catch {
+    $("clean-mode").disabled = true;
+  }
+
+  $("reader-mode").disabled = !(currentTab?.isArticle || currentTab?.isInReaderMode);
+  $("reader-mode").textContent = currentTab?.isInReaderMode ? "Salir" : "Abrir";
 
   try {
     await send({ type: "health" });
