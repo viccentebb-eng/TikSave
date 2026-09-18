@@ -82,6 +82,9 @@ def start_download(payload: DownloadRequest) -> dict:
             music_metadata=payload.music_metadata,
             subtitle_format=payload.subtitle_format,
             subtitle_languages=payload.subtitle_languages,
+            clip_start=payload.clip_start,
+            clip_end=payload.clip_end,
+            precise_clip=payload.precise_clip,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -95,6 +98,9 @@ def start_browser_media(payload: BrowserMediaRequest) -> dict:
             media_url=str(payload.media_url) if payload.media_url else None,
             mode=payload.mode,
             quality=payload.quality,
+            clip_start=payload.clip_start,
+            clip_end=payload.clip_end,
+            precise_clip=payload.precise_clip,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
