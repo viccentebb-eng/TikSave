@@ -55,3 +55,12 @@ jobs:
 
       - name: Validate analyzer cache import
         run: python -c "import app.analyzer; assert app.analyzer.ANALYZE_CACHE_TTL > 0"
+
+      - name: Validate floating image viewer JavaScript
+        run: node --check extension/image-viewer.js
+
+      - name: Validate social image scanner JavaScript
+        run: node --check extension/social-images.js
+
+      - name: Validate setup helper
+        run: python -m app.setup_engines verify
