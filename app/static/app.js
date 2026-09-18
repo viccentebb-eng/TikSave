@@ -75,6 +75,13 @@ function resetInspection() {
   $("carousel-grid").innerHTML = "";
   $("subtitle-panel").classList.add("hidden");
   $("subtitle-tracks").innerHTML = "";
+  $("capabilities-panel").classList.add("hidden");
+  $("capability-buttons").innerHTML = "";
+  $("analysis-notes").classList.add("hidden");
+  $("analysis-notes").innerHTML = "";
+  $("media-actions").classList.add("hidden");
+  $("page-images-panel").classList.add("hidden");
+  $("page-images-grid").innerHTML = "";
 }
 
 async function inspectFirst({ silent = false } = {}) {
@@ -88,7 +95,7 @@ async function inspectFirst({ silent = false } = {}) {
   if (!silent) clearMessage();
 
   try {
-    const data = await api("/api/inspect", {
+    const data = await api("/api/analyze", {
       method: "POST",
       body: JSON.stringify({
         url: urls[0],
@@ -106,16 +113,26 @@ async function inspectFirst({ silent = false } = {}) {
   }
 }
 
+function capabilityIds(data) {
+  return new Set((data.capabilities || []).map((item) => item.id));
+}
+
 function renderInspection(data) {
+  const ids = capabilityIds(data);
+
   $("title").textContent = data.title || "Contenido";
   $("uploader").textContent = [
     platformLabel(data.platform),
-    data.uploader,
+    data.uploader || data.host,
   ].filter(Boolean).join(" · ");
 
   $("playlist-info").textContent = data.is_playlist
     ? `Colección · ${data.entry_count ?? "varios"} elementos`
-    : "";
+    : data.kind && data.kind !== "media"
+      ? data.kind === "artwork"
+        ? "Obra / imagen ampliable"
+        : `Contenido: ${data.kind}`
+      : "";
 
   if (data.thumbnail) {
     $("thumb").src = data.thumbnail;
@@ -126,8 +143,108 @@ function renderInspection(data) {
   }
 
   $("preview").classList.remove("hidden");
+
+  const hasNativeMedia = ["video", "mp3", "audio"].some((id) => ids.has(id));
+  $("media-actions").classList.toggle("hidden", !hasNativeMedia);
+
+  document.querySelector('[data-mode="video"]').classList.toggle("hidden", !ids.has("video"));
+  document.querySelector('[data-mode="mp3"]').classList.toggle("hidden", !ids.has("mp3"));
+  document.querySelector('[data-mode="audio"]').classList.toggle("hidden", !ids.has("audio"));
+
+  $("quality-control").classList.toggle(
+    "hidden",
+    !(ids.has("video") || ids.has("web_video")),
+  );
+
+  const showPlaylist = data.platform === "youtube" || ids.has("playlist");
+  $("playlist-control").classList.toggle("hidden", !showPlaylist);
+  $("music-control").classList.toggle("hidden", data.platform !== "youtube");
+
+  renderCapabilities(data);
+  renderPageImages(data.images || []);
   renderCarousel(data.entries || []);
-  renderSubtitleTracks(data.subtitles || []);
+  renderSubtitleTracks(data.subtitles || data.subtitle_tracks || []);
+}
+
+function renderCapabilities(data) {
+  const panel = $("capabilities-panel");
+  const box = $("capability-buttons");
+  const notes = $("analysis-notes");
+  const generic = (data.capabilities || []).filter((cap) =>
+    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom"].includes(cap.id)
+  );
+
+  const labels = {
+    web_video: "Descargar video",
+    web_audio: "Solo audio",
+    images: "Ver imágenes encontradas",
+    image_download: "Descargar imagen",
+    image_max: "Original / máxima resolución",
+    dezoom: "Reconstruir mosaicos",
+  };
+
+  if (!generic.length && !(data.capabilities || []).length) {
+    panel.classList.remove("hidden");
+    box.innerHTML = '<span class="capability-empty">No detecté una descarga directa en esta página.</span>';
+  } else if (generic.length) {
+    panel.classList.remove("hidden");
+    box.innerHTML = generic.map((cap, index) => `
+      <button
+        class="${index === 0 ? "primary" : "secondary"}"
+        data-cap-action="${escapeHtml(cap.id)}"
+        data-source-url="${escapeHtml(cap.source_url || "")}"
+        data-needs-install="${cap.needs_install ? "1" : "0"}"
+      >
+        ${escapeHtml(labels[cap.id] || cap.label || cap.id)}
+        ${cap.needs_install ? '<small>requiere instalar motor</small>' : ""}
+      </button>
+    `).join("");
+  } else {
+    panel.classList.add("hidden");
+    box.innerHTML = "";
+  }
+
+  if (data.notes?.length) {
+    notes.innerHTML = data.notes.map((note) => `<div>${escapeHtml(note)}</div>`).join("");
+    notes.classList.remove("hidden");
+    panel.classList.remove("hidden");
+  } else {
+    notes.classList.add("hidden");
+    notes.innerHTML = "";
+  }
+}
+
+function renderPageImages(images) {
+  const panel = $("page-images-panel");
+  const grid = $("page-images-grid");
+
+  if (!images.length) {
+    panel.classList.add("hidden");
+    grid.innerHTML = "";
+    return;
+  }
+
+  $("page-images-title").textContent = `${images.length} imagen${images.length === 1 ? "" : "es"} encontrada${images.length === 1 ? "" : "s"}`;
+
+  grid.innerHTML = images.map((item, index) => `
+    <label class="media-item">
+      <input type="checkbox" data-page-image-index="${index}" checked>
+      <div class="media-thumb">
+        <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.alt || `Imagen ${index + 1}`)}" loading="lazy">
+        <span class="media-index">${index + 1}</span>
+      </div>
+      <span class="media-caption">${escapeHtml(item.source || shortUrl(item.url))}</span>
+    </label>
+  `).join("");
+
+  panel.classList.remove("hidden");
+}
+
+function selectedPageImages() {
+  if (!currentInspection?.images?.length) return [];
+  return [...document.querySelectorAll("[data-page-image-index]:checked")]
+    .map((input) => currentInspection.images[Number(input.dataset.pageImageIndex)])
+    .filter(Boolean);
 }
 
 function renderCarousel(entries) {
@@ -221,6 +338,143 @@ function selectedSubtitleLanguages() {
 }
 
 $("inspect").addEventListener("click", () => inspectFirst());
+
+$("select-all-page-images").addEventListener("click", () => {
+  document.querySelectorAll("[data-page-image-index]").forEach((input) => {
+    input.checked = true;
+  });
+});
+
+$("select-no-page-images").addEventListener("click", () => {
+  document.querySelectorAll("[data-page-image-index]").forEach((input) => {
+    input.checked = false;
+  });
+});
+
+$("download-page-images").addEventListener("click", async () => {
+  const selected = selectedPageImages();
+  if (!selected.length) {
+    showMessage("Selecciona al menos una imagen.", "error");
+    return;
+  }
+
+  try {
+    showMessage(`Descargando ${selected.length} imagen${selected.length === 1 ? "" : "es"}…`);
+    const urls = getUrls();
+    const result = await api("/api/images/download", {
+      method: "POST",
+      body: JSON.stringify({
+        urls: selected.map((item) => item.url),
+        page_url: urls.length === 1 ? urls[0] : null,
+      }),
+    });
+    showMessage(`${result.count} imagen${result.count === 1 ? "" : "es"} guardada${result.count === 1 ? "" : "s"} en TikSave/Images.`, "ok");
+  } catch (err) {
+    showMessage(err.message, "error");
+  }
+});
+
+$("capability-buttons").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-cap-action]");
+  if (!button || !currentInspection) return;
+
+  const action = button.dataset.capAction;
+  const sourceUrl = button.dataset.sourceUrl || "";
+  let urls;
+
+  try {
+    urls = getUrls();
+  } catch (err) {
+    showMessage(err.message, "error");
+    return;
+  }
+
+  if (urls.length !== 1) {
+    showMessage("Estas opciones se usan con un enlace a la vez.", "error");
+    return;
+  }
+
+  try {
+    if (action === "images") {
+      $("page-images-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+
+    if (action === "image_download") {
+      const result = await api("/api/images/download", {
+        method: "POST",
+        body: JSON.stringify({
+          urls: [sourceUrl || currentInspection.final_url || urls[0]],
+          page_url: urls[0],
+        }),
+      });
+      showMessage(`Imagen guardada: ${result.files?.[0] || "TikSave/Images"}`, "ok");
+      return;
+    }
+
+    if (action === "image_max") {
+      if (button.dataset.needsInstall === "1") {
+        showMessage("Instalando Image Max URL la primera vez…");
+        await api("/api/maxurl/install", { method: "POST", body: "{}" });
+        button.dataset.needsInstall = "0";
+      }
+
+      showMessage("Buscando la versión original o de mayor resolución…");
+      const result = await api("/api/maxurl/download", {
+        method: "POST",
+        body: JSON.stringify({
+          url: sourceUrl || currentInspection.images?.[0]?.url || urls[0],
+        }),
+      });
+      showMessage(`Imagen original guardada: ${result.path}`, "ok");
+      return;
+    }
+
+    if (action === "dezoom") {
+      if (button.dataset.needsInstall === "1") {
+        showMessage("Instalando el motor de mosaicos la primera vez…");
+        await api("/api/dezoom/install", { method: "POST", body: "{}" });
+        button.dataset.needsInstall = "0";
+      }
+
+      const data = await api("/api/dezoom/download", {
+        method: "POST",
+        body: JSON.stringify({
+          source_url: sourceUrl || currentInspection.zoom_sources?.[0]?.url,
+          page_url: urls[0],
+          output_format: "jpg",
+        }),
+      });
+
+      jobsBox.innerHTML = "";
+      jobsBox.classList.remove("hidden");
+      createJobCard(data.id, urls[0], 1, 1);
+      startPolling(data.id);
+      showMessage("Reconstrucción de alta resolución iniciada.", "ok");
+      return;
+    }
+
+    if (action === "web_video" || action === "web_audio") {
+      const data = await api("/api/browser-media", {
+        method: "POST",
+        body: JSON.stringify({
+          page_url: urls[0],
+          media_url: sourceUrl || null,
+          mode: action === "web_video" ? "video" : "audio",
+          quality: $("quality").value,
+        }),
+      });
+
+      jobsBox.innerHTML = "";
+      jobsBox.classList.remove("hidden");
+      createJobCard(data.id, urls[0], 1, 1);
+      startPolling(data.id);
+      showMessage("Descarga iniciada.", "ok");
+    }
+  } catch (err) {
+    showMessage(err.message, "error");
+  }
+});
 
 urlsInput.addEventListener("input", () => {
   clearTimeout(inspectTimer);
