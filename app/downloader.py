@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import yt_dlp
 from yt_dlp.utils import download_range_func
@@ -555,6 +555,16 @@ class TikSaveDownloader:
     ) -> dict[str, Any]:
         source_url = validate_public_web_url(source_url)
         referer = validate_public_web_url(page_url) if page_url else None
+
+        parsed = urlsplit(source_url)
+        if (
+            (parsed.hostname or "").lower() == "artsandculture.google.com"
+            and parsed.path.startswith("/asset/")
+        ):
+            source_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+            if referer:
+                ref = urlsplit(referer)
+                referer = urlunsplit((ref.scheme, ref.netloc, ref.path, "", ""))
 
         if output_format not in {"jpg", "png", "webp"}:
             raise ValueError("Formato de imagen no compatible.")

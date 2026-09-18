@@ -4,9 +4,13 @@ const urlsInput = $("urls");
 const message = $("message");
 const jobsPanel = $("jobs");
 const jobsBox = $("jobs-list");
+const historyPanel = $("history");
+const historyBox = $("history-list");
 const jobPollers = new Map();
 
 let currentInspection = null;
+let trimDuration = 0;
+let trimFramesLoadedFor = "";
 let inspectTimer = null;
 let analysisItems = [];
 let activeAnalysisIndex = 0;
@@ -139,6 +143,9 @@ function resetInspection() {
   $("trim-panel").classList.add("hidden");
   $("clip-enabled").checked = false;
   $("trim-fields").classList.add("hidden");
+  trimDuration = 0;
+  trimFramesLoadedFor = "";
+  $("trim-filmstrip").innerHTML = "";
 }
 
 function activeAnalysisItem() {
@@ -331,8 +338,9 @@ function renderInspection(data) {
   const showTrim = ids.has("video") && !data.is_playlist;
   $("trim-panel").classList.toggle("hidden", !showTrim);
   $("trim-help").textContent = data.duration
-    ? `Duración detectada: ${formatDuration(data.duration)}. Activa el recorte si no quieres descargar el video completo.`
-    : "Activa el recorte si no quieres descargar el video completo.";
+    ? `Duración detectada: ${formatDuration(data.duration)}. Arrastra los extremos para elegir el fragmento.`
+    : "Activa el recorte y arrastra los extremos para elegir el fragmento.";
+  configureTrimTimeline(data);
 
   renderCapabilities(data);
   renderPageImages(data.images || []);
@@ -370,18 +378,89 @@ function arrangePanels(data, ids) {
   }
 }
 
-function parseClipTime(value) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
+function configureTrimTimeline(data) {
+  trimDuration = Math.max(0, Number(data.duration || 0));
+  const max = trimDuration || 100;
 
-  const parts = text.split(":").map(Number);
-  if (parts.some((part) => !Number.isFinite(part) || part < 0)) {
-    throw new Error("Usa tiempos como 00:30 o 1:02:15.");
+  const start = $("clip-start-range");
+  const end = $("clip-end-range");
+  start.max = String(max);
+  end.max = String(max);
+  start.value = "0";
+  end.value = String(max);
+
+  const filmstrip = $("trim-filmstrip");
+  filmstrip.innerHTML = "";
+  const fallback = data.thumbnail || "";
+
+  for (let i = 0; i < 8; i += 1) {
+    const frame = document.createElement("div");
+    frame.className = "trim-frame placeholder";
+    if (fallback) {
+      frame.style.backgroundImage = `url("${fallback.replaceAll('"', '%22')}")`;
+    }
+    filmstrip.appendChild(frame);
   }
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  throw new Error("Usa tiempos como 00:30 o 1:02:15.");
+
+  updateTrimVisual();
+}
+
+function updateTrimVisual() {
+  const start = $("clip-start-range");
+  const end = $("clip-end-range");
+  const max = Math.max(0.001, Number(end.max || start.max || trimDuration || 100));
+  let startValue = Number(start.value || 0);
+  let endValue = Number(end.value || max);
+
+  if (startValue > endValue - 0.1) {
+    if (document.activeElement === start) startValue = Math.max(0, endValue - 0.1);
+    else endValue = Math.min(max, startValue + 0.1);
+    start.value = String(startValue);
+    end.value = String(endValue);
+  }
+
+  const left = Math.max(0, Math.min(100, (startValue / max) * 100));
+  const right = Math.max(0, Math.min(100, (endValue / max) * 100));
+  $("trim-range-shell").style.setProperty("--trim-left", `${left}%`);
+  $("trim-range-shell").style.setProperty("--trim-right", `${100 - right}%`);
+
+  $("clip-start-label").textContent = formatDuration(startValue);
+  $("clip-end-label").textContent = formatDuration(endValue);
+  $("clip-selection-label").textContent = `${formatDuration(Math.max(0, endValue - startValue))} seleccionados`;
+}
+
+async function loadTrimFrames() {
+  if (!currentInspection || !trimDuration) return;
+
+  let url;
+  try {
+    url = activeUrl();
+  } catch {
+    return;
+  }
+
+  if (!url || trimFramesLoadedFor === url) return;
+  trimFramesLoadedFor = url;
+
+  try {
+    const result = await api("/api/preview/frames", {
+      method: "POST",
+      body: JSON.stringify({ url, playlist: false }),
+    });
+
+    if (!result.frames?.length || trimFramesLoadedFor !== url) return;
+
+    const filmstrip = $("trim-filmstrip");
+    filmstrip.innerHTML = result.frames.map((frame) => `
+      <div
+        class="trim-frame"
+        style="background-image:url('${escapeHtml(frame.data_url)}')"
+        title="${escapeHtml(formatDuration(frame.time))}"
+      ></div>
+    `).join("");
+  } catch {
+    // The static thumbnail placeholders remain; trimming still works.
+  }
 }
 
 function clipPayload() {
@@ -389,11 +468,13 @@ function clipPayload() {
     return { clip_start: null, clip_end: null, precise_clip: false };
   }
 
-  const start = parseClipTime($("clip-start").value) ?? 0;
-  const end = parseClipTime($("clip-end").value);
-  if (end !== null && end <= start) {
-    throw new Error("El final del recorte debe ser posterior al inicio.");
+  const start = Number($("clip-start-range").value || 0);
+  const end = Number($("clip-end-range").value || trimDuration || 0);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    throw new Error("Selecciona un fragmento válido en la línea de tiempo.");
   }
+
   return {
     clip_start: start,
     clip_end: end,
@@ -885,11 +966,18 @@ $("download-subtitles").addEventListener("click", async () => {
   }
 });
 
+function folderIcon() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.7 2H20.5v9H3.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3.5 8.5h17" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
+}
+
 function updateJobsCount() {
-  const cards = [...jobsBox.querySelectorAll(".job-card")];
-  const active = cards.filter((card) => !card.classList.contains("done") && !card.classList.contains("failed") && !card.classList.contains("cancelled")).length;
-  $("jobs-count").textContent = active ? `${active} activo${active === 1 ? "" : "s"}` : `${cards.length} trabajo${cards.length === 1 ? "" : "s"}`;
-  jobsPanel.classList.toggle("hidden", cards.length === 0);
+  const activeCards = [...jobsBox.querySelectorAll(".job-card")];
+  $("jobs-count").textContent = `${activeCards.length} activo${activeCards.length === 1 ? "" : "s"}`;
+  jobsPanel.classList.toggle("hidden", activeCards.length === 0);
+
+  const historyCards = [...historyBox.querySelectorAll(".job-card")];
+  $("history-count").textContent = String(historyCards.length);
+  historyPanel.classList.toggle("hidden", historyCards.length === 0);
 }
 
 function createJobCard(jobId, url, position = 1, total = 1) {
@@ -907,6 +995,7 @@ function createJobCard(jobId, url, position = 1, total = 1) {
   const card = document.createElement("article");
   card.className = "job-card";
   card.id = `job-${jobId}`;
+  card.dataset.jobId = jobId;
 
   card.innerHTML = `
     <div class="job-head">
@@ -919,6 +1008,7 @@ function createJobCard(jobId, url, position = 1, total = 1) {
     <div class="track"><div data-role="bar" class="bar"></div></div>
     <div data-role="details" class="details"></div>
     <div class="job-actions">
+      <button class="icon-button" data-job-folder="${jobId}" title="Abrir carpeta de descargas" aria-label="Abrir carpeta de descargas" hidden>${folderIcon()}</button>
       <button class="ghost small-button" data-job-view="${jobId}" hidden>Ver progreso</button>
       <button class="ghost small-button danger-button" data-job-cancel="${jobId}">Cancelar</button>
     </div>
@@ -936,13 +1026,13 @@ function createRejectedCard(url, error, position = 1, total = 1) {
     <div class="job-head">
       <div class="job-title">
         <strong>${total > 1 ? `${position}/${total} · ` : ""}${escapeHtml(shortUrl(url))}</strong>
-        <span>Error antes de iniciar</span>
+        <span>Falló antes de iniciar</span>
       </div>
       <span>—</span>
     </div>
     <div class="details error-text">${escapeHtml(error)}</div>
   `;
-  jobsBox.prepend(card);
+  historyBox.prepend(card);
   updateJobsCount();
 }
 
@@ -952,6 +1042,12 @@ function startPolling(jobId) {
   const timer = setInterval(() => updateJob(jobId), 650);
   jobPollers.set(jobId, timer);
   updateJob(jobId);
+}
+
+function moveJobToHistory(card) {
+  if (!card || card.parentElement === historyBox) return;
+  historyBox.prepend(card);
+  updateJobsCount();
 }
 
 async function updateJob(jobId) {
@@ -964,6 +1060,7 @@ async function updateJob(jobId) {
   const detailsEl = card.querySelector('[data-role="details"]');
   const cancelButton = card.querySelector("[data-job-cancel]");
   const viewButton = card.querySelector("[data-job-view]");
+  const folderButton = card.querySelector("[data-job-folder]");
 
   try {
     const data = await api(`/api/jobs/${jobId}`);
@@ -987,7 +1084,7 @@ async function updateJob(jobId) {
       cancelling: "Cancelando…",
       cancelled: "Cancelado",
       done: "Terminado",
-      error: "Error",
+      error: "Falló",
     };
 
     let status = data.phase || labels[data.status] || data.status;
@@ -1007,6 +1104,8 @@ async function updateJob(jobId) {
 
     const terminal = ["done", "error", "cancelled"].includes(data.status);
     cancelButton.hidden = terminal || !data.can_cancel;
+    folderButton.hidden = data.status !== "done";
+
     if (data.platform === "dezoom") {
       viewButton.hidden = false;
       viewButton.textContent = data.status === "done" ? "Abrir imagen" : "Ver progreso";
@@ -1020,6 +1119,7 @@ async function updateJob(jobId) {
       if (data.status === "done") card.classList.add("done");
       if (data.status === "error") card.classList.add("failed");
       if (data.status === "cancelled") card.classList.add("cancelled");
+      moveJobToHistory(card);
     }
 
     updateJobsCount();
@@ -1028,13 +1128,13 @@ async function updateJob(jobId) {
     if (timer) clearInterval(timer);
     jobPollers.delete(jobId);
     card.classList.add("failed");
-    statusEl.textContent = "Error";
+    statusEl.textContent = "Falló";
     detailsEl.textContent = err.message;
-    updateJobsCount();
+    moveJobToHistory(card);
   }
 }
 
-jobsBox.addEventListener("click", async (event) => {
+async function handleJobListClick(event) {
   const cancel = event.target.closest("[data-job-cancel]");
   if (cancel) {
     cancel.disabled = true;
@@ -1051,8 +1151,21 @@ jobsBox.addEventListener("click", async (event) => {
   const view = event.target.closest("[data-job-view]");
   if (view) {
     window.open(`/viewer/${encodeURIComponent(view.dataset.jobView)}`, "_blank", "noopener");
+    return;
   }
-});
+
+  const folder = event.target.closest("[data-job-folder]");
+  if (folder) {
+    try {
+      await api("/api/open-folder", { method: "POST", body: "{}" });
+    } catch (err) {
+      showMessage(err.message, "error");
+    }
+  }
+}
+
+jobsBox.addEventListener("click", handleJobListClick);
+historyBox.addEventListener("click", handleJobListClick);
 
 async function restoreJobs() {
   try {
@@ -1121,8 +1234,13 @@ $("open-log").addEventListener("click", async () => {
 
 
 $("clip-enabled").addEventListener("change", () => {
-  $("trim-fields").classList.toggle("hidden", !$("clip-enabled").checked);
+  const enabled = $("clip-enabled").checked;
+  $("trim-fields").classList.toggle("hidden", !enabled);
+  if (enabled) loadTrimFrames();
 });
+
+$("clip-start-range").addEventListener("input", updateTrimVisual);
+$("clip-end-range").addEventListener("input", updateTrimVisual);
 
 async function loadSystemStatus() {
   try {

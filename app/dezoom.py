@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -14,7 +15,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from app.diagnostics import write_event
 
@@ -278,6 +279,13 @@ def run(
     host = (urlparse(source_url).hostname or "").lower()
     google_arts = host == "artsandculture.google.com" or host.endswith(".artsandculture.google.com")
 
+    if google_arts:
+        parsed = urlsplit(source_url)
+        source_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        if referer:
+            ref = urlsplit(referer)
+            referer = urlunsplit((ref.scheme, ref.netloc, ref.path, "", ""))
+
     command = [str(binary)]
     if google_arts:
         command.extend(["--dezoomer", "google_arts_and_culture"])
@@ -285,7 +293,7 @@ def run(
     command.extend([
         "--largest",
         "--image-index", "0",
-        "--compression", "0",
+        "--compression", "5",
         "--parallelism", "16",
         "--retries", "3",
         "--retry-delay", "2s",

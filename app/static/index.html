@@ -105,22 +105,29 @@
           <div>
             <span class="kicker">Edición rápida</span>
             <h2>Recortar antes de descargar</h2>
-            <p id="trim-help">Opcional. TikSave puede guardar solo el tramo que necesitas.</p>
+            <p id="trim-help">Opcional. Arrastra los extremos sobre la línea de tiempo.</p>
           </div>
           <label class="trim-toggle">
             <input id="clip-enabled" type="checkbox">
             <span>Activar recorte</span>
           </label>
         </div>
-        <div id="trim-fields" class="trim-fields hidden">
-          <label>
-            <span>Inicio</span>
-            <input id="clip-start" type="text" inputmode="numeric" placeholder="00:00">
-          </label>
-          <label>
-            <span>Final</span>
-            <input id="clip-end" type="text" inputmode="numeric" placeholder="00:30">
-          </label>
+
+        <div id="trim-fields" class="trim-visual hidden">
+          <div id="trim-filmstrip" class="trim-filmstrip" aria-hidden="true"></div>
+
+          <div id="trim-range-shell" class="trim-range-shell">
+            <div class="trim-selected"></div>
+            <input id="clip-start-range" class="trim-range trim-range-start" type="range" min="0" max="100" value="0" step="0.1" aria-label="Inicio del recorte">
+            <input id="clip-end-range" class="trim-range trim-range-end" type="range" min="0" max="100" value="100" step="0.1" aria-label="Final del recorte">
+          </div>
+
+          <div class="trim-time-row">
+            <span><strong id="clip-start-label">0:00</strong><small>Inicio</small></span>
+            <span class="trim-duration"><strong id="clip-selection-label">Video completo</strong><small>Selección</small></span>
+            <span><strong id="clip-end-label">0:00</strong><small>Final</small></span>
+          </div>
+
           <label class="precise-toggle">
             <input id="precise-clip" type="checkbox">
             <span><strong>Recorte preciso</strong><small>Reencodifica alrededor del corte; tarda un poco más.</small></span>
@@ -211,11 +218,23 @@
           <div>
             <span class="kicker">Trabajos</span>
             <h2>Cola y progreso</h2>
-            <p>Cada descarga conserva su propio estado. Puedes seguir trabajando mientras termina.</p>
+            <p>Solo aparecen aquí los trabajos que siguen activos.</p>
           </div>
           <span id="jobs-count" class="analysis-state">0 activos</span>
         </div>
         <div id="jobs-list" class="jobs-list"></div>
+      </section>
+
+      <section id="history" class="card history hidden">
+        <div class="section-head">
+          <div>
+            <span class="kicker">Descargas</span>
+            <h2>Historial</h2>
+            <p>Terminadas, canceladas y fallidas. Los errores ya no estorban al contenido nuevo.</p>
+          </div>
+          <span id="history-count" class="analysis-state">0</span>
+        </div>
+        <div id="history-list" class="history-list"></div>
       </section>
 
       <footer class="utility-bar">
