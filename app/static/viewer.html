@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>TikSave · Visor de alta resolución</title>
+  <link rel="stylesheet" href="/static/viewer.css">
+</head>
+<body>
+  <header class="viewer-bar">
+    <div class="brand"><span class="mark">↓</span><div><strong>TikSave</strong><small id="phase">Preparando imagen…</small></div></div>
+    <div class="viewer-controls">
+      <button id="minus" title="Alejar">−</button>
+      <button id="fit">Ajustar</button>
+      <button id="actual">100%</button>
+      <button id="plus" title="Acercar">+</button>
+      <span id="zoom-label">—</span>
+      <button id="open-folder">Carpeta</button>
+      <button id="cancel" class="danger">Cancelar</button>
+    </div>
+  </header>
+  <main id="viewport" class="viewport">
+    <section id="working" class="working">
+      <div class="mosaic" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <h1 id="working-title">Reconstruyendo máxima resolución</h1>
+      <p id="detail">TikSave está localizando y descargando los mosaicos.</p>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar indeterminate"></div></div>
+      <div class="progress-meta"><span id="percent">Trabajando…</span><span id="filename"></span></div>
+    </section>
+    <img id="image" class="image hidden" alt="Imagen reconstruida por TikSave" draggable="false">
+    <section id="error" class="error hidden"></section>
+  </main>
+  <script src="/static/viewer.js" defer></script>
+</body>
+</html>

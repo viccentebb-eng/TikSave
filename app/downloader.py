@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
-from app.dezoom import run as run_dezoom
+from app.dezoom import DezoomCancelled, run as run_dezoom
 from app.music import apply_music_metadata
 from app.url_utils import canonicalize_http_url, follow_known_short_url
 
@@ -48,6 +48,10 @@ RETRYABLE_TIKTOK_ERRORS = (
     "Unexpected response from webpage request",
     "Unable to extract universal data for rehydration",
 )
+
+
+class DownloadCancelled(RuntimeError):
+    pass
 
 
 def detect_platform(value: str) -> str | None:
@@ -310,17 +314,25 @@ class Job:
     current_index: int | None = None
     total_items: int | None = None
     metadata_note: str | None = None
+    phase: str | None = None
+    progress_mode: str = "determinate"
+    cancel_requested: bool = False
+    can_cancel: bool = True
 
 
 class JobStore:
+    TERMINAL = {"done", "error", "cancelled"}
+
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def create(self, **kwargs: Any) -> Job:
         job = Job(id=uuid.uuid4().hex, **kwargs)
         with self._lock:
             self._jobs[job.id] = job
+            self._cancel_events[job.id] = threading.Event()
         return job
 
     def update(self, job_id: str, **changes: Any) -> None:
@@ -333,6 +345,31 @@ class JobStore:
         with self._lock:
             job = self._jobs.get(job_id)
             return asdict(job) if job else None
+
+    def list(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock:
+            items = list(self._jobs.values())[-max(1, min(limit, 100)):]
+            return [asdict(job) for job in reversed(items)]
+
+    def cancel(self, job_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return None
+            if job.status in self.TERMINAL:
+                return asdict(job)
+            event = self._cancel_events.get(job_id)
+            if event:
+                event.set()
+            job.cancel_requested = True
+            job.status = "cancelling"
+            job.phase = "Cancelando trabajo…"
+            return asdict(job)
+
+    def is_cancelled(self, job_id: str) -> bool:
+        with self._lock:
+            event = self._cancel_events.get(job_id)
+            return bool(event and event.is_set())
 
 
 class TikSaveDownloader:
@@ -530,6 +567,10 @@ class TikSaveDownloader:
         if not job:
             return
 
+        if self.jobs.is_cancelled(job_id):
+            self.jobs.update(job_id, status="cancelled", phase="Trabajo cancelado", can_cancel=False)
+            return
+
         output_dir = self.download_dir / "Dezoom"
         output_dir.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -538,21 +579,33 @@ class TikSaveDownloader:
         self.jobs.update(
             job_id,
             status="starting",
-            progress=2.0,
+            progress=0.0,
+            progress_mode="indeterminate",
+            phase="Analizando visor",
             title="Imagen de alta resolución",
+            filename=str(output_path),
         )
 
-        def note(message: str) -> None:
-            current = self.jobs.get(job_id) or {}
-            progress = float(current.get("progress") or 5.0)
-            if progress < 90:
-                progress = min(progress + 2.5, 90.0)
-            self.jobs.update(
-                job_id,
-                status="processing",
-                progress=progress,
-                metadata_note=self._safe_title(message),
-            )
+        def note(message: str, percent: float | None = None) -> None:
+            lower = message.lower()
+            phase = "Reconstruyendo imagen"
+            if any(word in lower for word in ("metadata", "dezoomer", "discover", "analy", "image found")):
+                phase = "Analizando visor"
+            elif any(word in lower for word in ("tile", "download", "loading", "request")):
+                phase = "Descargando mosaicos"
+            elif any(word in lower for word in ("stitch", "render", "write", "encod", "saving")):
+                phase = "Uniendo mosaicos"
+
+            changes: dict[str, Any] = {
+                "status": "processing",
+                "phase": phase,
+                "metadata_note": self._safe_title(message),
+                "progress_mode": "indeterminate",
+            }
+            if percent is not None:
+                changes["progress"] = round(min(max(percent, 0.0), 99.0), 1)
+                changes["progress_mode"] = "determinate"
+            self.jobs.update(job_id, **changes)
 
         try:
             result, tail = run_dezoom(
@@ -560,22 +613,39 @@ class TikSaveDownloader:
                 output_path=output_path,
                 referer=job.get("referer"),
                 progress=note,
+                cancelled=lambda: self.jobs.is_cancelled(job_id),
             )
             self.jobs.update(
                 job_id,
                 status="done",
                 progress=100.0,
+                progress_mode="determinate",
+                phase="Imagen lista",
                 title=result.name,
                 filename=str(result),
                 metadata_note=self._safe_title(tail.splitlines()[-1] if tail else "Imagen reconstruida."),
                 error=None,
+                can_cancel=False,
+            )
+        except DezoomCancelled:
+            output_path.unlink(missing_ok=True)
+            self.jobs.update(
+                job_id,
+                status="cancelled",
+                phase="Trabajo cancelado",
+                progress_mode="determinate",
+                metadata_note="La reconstrucción se detuvo.",
+                error=None,
+                can_cancel=False,
             )
         except Exception as exc:
             self.jobs.update(
                 job_id,
                 status="error",
-                progress=100.0,
+                phase="Error",
+                progress_mode="determinate",
                 error=clean_error(exc)[:1000],
+                can_cancel=False,
             )
 
     @staticmethod
@@ -821,9 +891,16 @@ class TikSaveDownloader:
 
         platform = job["platform"]
         playlist = bool(job["playlist"])
-        self.jobs.update(job_id, status="starting")
+
+        if self.jobs.is_cancelled(job_id):
+            self.jobs.update(job_id, status="cancelled", phase="Trabajo cancelado", can_cancel=False)
+            return
+
+        self.jobs.update(job_id, status="starting", phase="Preparando descarga")
 
         def progress_hook(data: dict[str, Any]) -> None:
+            if self.jobs.is_cancelled(job_id):
+                raise DownloadCancelled("Descarga cancelada por el usuario.")
             status = data.get("status")
             info = data.get("info_dict") or {}
             item_index = info.get("playlist_index")
@@ -851,6 +928,8 @@ class TikSaveDownloader:
                 self.jobs.update(
                     job_id,
                     status="downloading",
+                    phase="Descargando",
+                    progress_mode="determinate",
                     progress=round(min(max(pct, 0.0), 100.0), 1),
                     speed=data.get("_speed_str"),
                     eta=data.get("_eta_str"),
@@ -868,6 +947,8 @@ class TikSaveDownloader:
                 self.jobs.update(
                     job_id,
                     status="processing",
+                    phase="Procesando archivo",
+                    progress_mode="determinate",
                     progress=round(min(max(pct, 0.0), 100.0), 1),
                     filename=data.get("filename"),
                     title=self._safe_title(item_title),
@@ -916,6 +997,10 @@ class TikSaveDownloader:
             self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
             return
 
+        def postprocessor_hook(_data: dict[str, Any]) -> None:
+            if self.jobs.is_cancelled(job_id):
+                raise DownloadCancelled("Trabajo cancelado por el usuario.")
+
         last_error: Exception | None = None
 
         for attempt, user_agent in enumerate(self._agents_for(platform), start=1):
@@ -924,6 +1009,7 @@ class TikSaveDownloader:
                 **mode_options,
                 "outtmpl": output_template,
                 "progress_hooks": [progress_hook],
+                "postprocessor_hooks": [postprocessor_hook],
                 "windowsfilenames": True,
                 "overwrites": False,
             }
@@ -1004,9 +1090,14 @@ class TikSaveDownloader:
                         if mode == "mp3":
                             final_name = str(Path(final_name).with_suffix(".mp3"))
 
+                    if self.jobs.is_cancelled(job_id):
+                        raise DownloadCancelled("Trabajo cancelado por el usuario.")
+
                     self.jobs.update(
                         job_id,
                         status="done",
+                        phase="Archivo listo",
+                        progress_mode="determinate",
                         progress=100.0,
                         title=self._safe_title(info.get("title") or info.get("description")),
                         filename=final_name,
@@ -1014,10 +1105,21 @@ class TikSaveDownloader:
                         eta=None,
                         total_items=len(entries) if len(entries) > 1 else job.get("total_items"),
                         metadata_note=metadata_note,
+                        can_cancel=False,
                     )
                     return
 
             except Exception as exc:
+                if isinstance(exc, DownloadCancelled) or self.jobs.is_cancelled(job_id):
+                    self.jobs.update(
+                        job_id,
+                        status="cancelled",
+                        phase="Trabajo cancelado",
+                        error=None,
+                        can_cancel=False,
+                    )
+                    return
+
                 last_error = exc
                 if (
                     platform != "tiktok"
@@ -1045,4 +1147,10 @@ class TikSaveDownloader:
                 "solo está usando acceso público en esta versión."
             )
 
-        self.jobs.update(job_id, status="error", error=error_text[:1000])
+        self.jobs.update(
+            job_id,
+            status="error",
+            phase="Error",
+            error=error_text[:1000],
+            can_cancel=False,
+        )

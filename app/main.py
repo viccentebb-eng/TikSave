@@ -294,12 +294,53 @@ def open_diagnostics_log() -> dict:
     return {"ok": True, "path": str(path)}
 
 
+@app.get("/api/jobs")
+def jobs_list(limit: int = 30) -> dict:
+    return {"jobs": downloader.jobs.list(limit=limit)}
+
+
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict:
     job = downloader.jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Descarga no encontrada")
     return job
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    job = downloader.jobs.cancel(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Descarga no encontrada")
+    return job
+
+
+@app.get("/api/jobs/{job_id}/file")
+def job_file(job_id: str) -> FileResponse:
+    job = downloader.jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Descarga no encontrada")
+    if job.get("status") != "done" or not job.get("filename"):
+        raise HTTPException(status_code=409, detail="El archivo todavía no está listo.")
+
+    path = Path(str(job["filename"])).resolve()
+    root = downloader.download_dir.resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Ruta de archivo inválida.") from exc
+
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="El archivo terminado ya no existe.")
+
+    return FileResponse(path, filename=path.name)
+
+
+@app.get("/viewer/{job_id}")
+def job_viewer(job_id: str) -> FileResponse:
+    if not downloader.jobs.get(job_id):
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    return FileResponse(STATIC_DIR / "viewer.html")
 
 
 @app.post("/api/open-folder")

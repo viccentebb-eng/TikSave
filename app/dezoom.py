@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import queue
 import shutil
 import subprocess
 import threading
@@ -13,6 +14,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from app.diagnostics import write_event
 
@@ -257,30 +259,38 @@ def install(force: bool = False) -> dict:
     return result
 
 
+class DezoomCancelled(RuntimeError):
+    pass
+
+
 def run(
     source_url: str,
     output_path: Path,
     referer: str | None = None,
-    progress: Callable[[str], None] | None = None,
+    progress: Callable[[str, float | None], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[Path, str]:
     binary = find_binary()
     if not binary:
         raise RuntimeError("El motor de imágenes de alta resolución no está instalado.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    host = (urlparse(source_url).hostname or "").lower()
+    google_arts = host == "artsandculture.google.com" or host.endswith(".artsandculture.google.com")
 
-    command = [
-        str(binary),
+    command = [str(binary)]
+    if google_arts:
+        command.extend(["--dezoomer", "google_arts_and_culture"])
+
+    command.extend([
         "--largest",
-        "--image-index",
-        "0",
-        "--retries",
-        "3",
-        "--retry-delay",
-        "2s",
-        "--min-interval",
-        "80ms",
-    ]
+        "--image-index", "0",
+        "--compression", "0",
+        "--parallelism", "16",
+        "--retries", "3",
+        "--retry-delay", "2s",
+        "--min-interval", "80ms",
+    ])
 
     if referer:
         command.extend(["-H", f"Referer: {referer}"])
@@ -295,11 +305,12 @@ def run(
             "command": command,
             "output": str(output_path),
             "has_referer": bool(referer),
+            "forced_dezoomer": "google_arts_and_culture" if google_arts else "auto",
         },
     )
 
     if progress:
-        progress("Analizando el visor y localizando mosaicos…")
+        progress("Analizando el visor y localizando la pirámide de mosaicos…", None)
 
     creationflags = 0
     if platform.system() == "Windows" and hasattr(subprocess, "CREATE_NO_WINDOW"):
@@ -314,27 +325,76 @@ def run(
         creationflags=creationflags,
     )
 
+    line_queue: queue.Queue[str | None] = queue.Queue()
     output_lines: list[str] = []
 
-    assert process.stdout is not None
-    for line in process.stdout:
-        cleaned = line.strip()
-        if cleaned:
-            output_lines.append(cleaned)
-            output_lines = output_lines[-30:]
-            if progress:
-                progress(cleaned[-220:])
+    def read_output() -> None:
+        assert process.stdout is not None
+        try:
+            for line in process.stdout:
+                line_queue.put(line)
+        finally:
+            line_queue.put(None)
 
-    return_code = process.wait()
+    reader = threading.Thread(target=read_output, name="tiksave-dezoom-output", daemon=True)
+    reader.start()
+    stream_closed = False
+
+    try:
+        while not stream_closed:
+            if cancelled and cancelled():
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                raise DezoomCancelled("Reconstrucción cancelada por el usuario.")
+
+            try:
+                line = line_queue.get(timeout=0.20)
+            except queue.Empty:
+                if process.poll() is not None and not reader.is_alive():
+                    break
+                continue
+
+            if line is None:
+                stream_closed = True
+                continue
+
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+
+            output_lines.append(cleaned)
+            output_lines = output_lines[-40:]
+
+            pct: float | None = None
+            match = re.search(r"(?<!\d)(\d{1,3}(?:\.\d+)?)\s*%", cleaned)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    if 0 <= value <= 100:
+                        pct = value
+                except ValueError:
+                    pct = None
+
+            if progress:
+                progress(cleaned[-260:], pct)
+
+        return_code = process.wait()
+    finally:
+        if process.poll() is None:
+            process.kill()
 
     if return_code != 0:
-        detail = "\n".join(output_lines[-8:]).strip()
+        detail = "\n".join(output_lines[-10:]).strip()
         write_event(
             "dezoomify",
             "error",
             level="error",
             message=source_url,
-            details={"return_code": return_code, "tail": output_lines[-8:]},
+            details={"return_code": return_code, "tail": output_lines[-10:]},
         )
         raise RuntimeError(detail or f"dezoomify-rs terminó con código {return_code}.")
 
@@ -347,4 +407,4 @@ def run(
         message=str(output_path),
         details={"source_url": source_url, "bytes": output_path.stat().st_size},
     )
-    return output_path, "\n".join(output_lines[-8:])
+    return output_path, "\n".join(output_lines[-10:])
