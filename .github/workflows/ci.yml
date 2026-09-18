@@ -37,3 +37,12 @@ jobs:
 
       - name: Validate extension background JavaScript
         run: node --check extension/background.js
+
+      - name: Validate popup guard state JavaScript
+        run: node --check extension/guard-state.js
+
+      - name: Validate popup guard main-world JavaScript
+        run: node --check extension/guard-main.js
+
+      - name: Validate in-page notification JavaScript
+        run: node --check extension/notify.js
