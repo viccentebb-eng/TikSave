@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import yt_dlp
+from yt_dlp.utils import download_range_func
 
 from app.music import apply_music_metadata
 
@@ -122,6 +123,28 @@ def video_format(quality: str) -> str:
         f"bv*[height<={height}]+ba/"
         f"b[height<={height}]"
     )
+
+
+def validate_clip_range(
+    clip_start: float | None,
+    clip_end: float | None,
+) -> tuple[float | None, float | None]:
+    if clip_start is None and clip_end is None:
+        return None, None
+
+    start = float(clip_start or 0.0)
+    end = float(clip_end) if clip_end is not None else None
+
+    if start < 0:
+        raise ValueError("El inicio del recorte no puede ser negativo.")
+
+    if end is not None and end <= start:
+        raise ValueError("El final del recorte debe ser posterior al inicio.")
+
+    if end is not None and end - start < 0.25:
+        raise ValueError("El fragmento debe durar al menos 0.25 segundos.")
+
+    return start, end
 
 
 def _entry_thumbnail(entry: dict[str, Any]) -> str | None:
@@ -265,6 +288,9 @@ class Job:
     subtitle_format: str = "srt"
     subtitle_languages: list[str] | None = None
     referer: str | None = None
+    clip_start: float | None = None
+    clip_end: float | None = None
+    precise_clip: bool = False
     status: str = "queued"
     progress: float = 0.0
     speed: str | None = None
@@ -385,6 +411,9 @@ class TikSaveDownloader:
         music_metadata: bool = False,
         subtitle_format: str = "srt",
         subtitle_languages: list[str] | None = None,
+        clip_start: float | None = None,
+        clip_end: float | None = None,
+        precise_clip: bool = False,
     ) -> dict[str, Any]:
         url = validate_supported_url(url)
         platform = detect_platform(url)
@@ -392,6 +421,10 @@ class TikSaveDownloader:
             raise ValueError("Plataforma no compatible.")
 
         selected = sorted({int(item) for item in selected_items or [] if int(item) > 0}) or None
+        clip_start, clip_end = validate_clip_range(clip_start, clip_end)
+
+        if (playlist or selected) and (clip_start is not None or clip_end is not None):
+            raise ValueError("El recorte por tiempo se usa con un solo video, no con listas o canales.")
 
         if mode == "subtitles" and not subtitle_languages:
             raise ValueError("Selecciona al menos un idioma de subtítulos.")
@@ -406,6 +439,9 @@ class TikSaveDownloader:
             music_metadata=bool(music_metadata),
             subtitle_format=subtitle_format,
             subtitle_languages=subtitle_languages,
+            clip_start=clip_start,
+            clip_end=clip_end,
+            precise_clip=bool(precise_clip),
         )
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
@@ -416,12 +452,17 @@ class TikSaveDownloader:
         media_url: str | None,
         mode: str,
         quality: str = "best",
+        clip_start: float | None = None,
+        clip_end: float | None = None,
+        precise_clip: bool = False,
     ) -> dict[str, Any]:
         page_url = validate_public_web_url(page_url)
         source_url = validate_public_web_url(media_url) if media_url else page_url
 
         if mode not in {"video", "mp3", "audio"}:
             raise ValueError("Modo de descarga multimedia inválido.")
+
+        clip_start, clip_end = validate_clip_range(clip_start, clip_end)
 
         job = self.jobs.create(
             url=source_url,
@@ -434,6 +475,9 @@ class TikSaveDownloader:
             subtitle_format="srt",
             subtitle_languages=None,
             referer=page_url,
+            clip_start=clip_start,
+            clip_end=clip_end,
+            precise_clip=bool(precise_clip),
         )
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
@@ -735,9 +779,15 @@ class TikSaveDownloader:
                     total_items=item_count,
                 )
 
-        output_template = str(
-            self.download_dir / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
-        )
+        if job.get("clip_start") is not None or job.get("clip_end") is not None:
+            output_template = str(
+                self.download_dir
+                / "%(uploader|creator|channel)s - %(title).90s [%(id)s] [clip %(section_start)s-%(section_end)s].%(ext)s"
+            )
+        else:
+            output_template = str(
+                self.download_dir / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
+            )
 
         mode = job["mode"]
         mode_options: dict[str, Any] = {}
@@ -786,6 +836,16 @@ class TikSaveDownloader:
                 headers = dict(common.get("http_headers") or {})
                 headers["Referer"] = str(job["referer"])
                 common["http_headers"] = headers
+
+            if job.get("clip_start") is not None or job.get("clip_end") is not None:
+                clip_start = float(job.get("clip_start") or 0.0)
+                clip_end = (
+                    float(job["clip_end"])
+                    if job.get("clip_end") is not None
+                    else float("inf")
+                )
+                common["download_ranges"] = download_range_func([], [[clip_start, clip_end]])
+                common["force_keyframes_at_cuts"] = bool(job.get("precise_clip"))
 
             if job.get("selected_items"):
                 common["playlist_items"] = ",".join(str(item) for item in job["selected_items"])
