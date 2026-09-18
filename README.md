@@ -194,6 +194,45 @@ git pull
 
 Como esta versión añade el permiso `downloads` y nuevos scripts globales, conviene quitar el complemento temporal anterior de `about:debugging` y volver a cargar `extension/manifest.json`.
 
+
+
+## Rama experimental 0.10.0
+
+```text
+feature/image-picker-hls-fix-dezoom
+```
+
+Novedades:
+
+- El selector de imágenes del popup ahora muestra miniaturas y permite marcar exactamente cuáles guardar.
+- La detección HLS prioriza manifiestos master/video y evita usar variantes que parecen audio-only, por ejemplo `index-a1.m3u8`.
+- Para streams detectados en el navegador, TikSave intenta combinar mejor video + audio en lugar de guardar una pista aislada.
+- Integración opcional con **dezoomify-rs** para reconstruir imágenes de alta resolución servidas por mosaicos.
+- Detecta automáticamente varias fuentes típicas: IIIF `info.json`, Deep Zoom `.dzi`, Zoomify `ImageProperties.xml`, mosaicos Zoomify/Deep Zoom e indicios de Krpano.
+- Si el motor de imágenes no está instalado, el popup ofrece **Instalar motor de imágenes**. TikSave descarga el binario oficial desde GitHub Releases y lo ejecuta como herramienta externa.
+- Las imágenes reconstruidas se guardan en `Descargas/TikSave/Dezoom`.
+
+### Sobre dezoomify-rs
+
+TikSave no incorpora el código fuente de dezoomify-rs dentro de su código MIT. Lo usa como programa externo opcional. dezoomify-rs es un proyecto independiente con licencia GPL-3.0:
+
+https://github.com/lovasoa/dezoomify-rs
+
+El motor admite Zoomify, IIIF, Deep Zoom, Google Arts & Culture, Krpano, IIPImage, NYPL y modos genérico/custom, entre otros.
+
+Para probar esta rama:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/image-picker-hls-fix-dezoom
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Después vuelve a cargar `extension/manifest.json` desde `about:debugging`.
+
 ## Licencia
 
 MIT.
