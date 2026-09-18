@@ -7,29 +7,79 @@
 </head>
 <body>
   <main>
-    <div class="mark">TS</div>
-    <h1>TikSave</h1>
-    <p id="url">Leyendo pestaña…</p>
+    <header class="app-head">
+      <img src="icons/tiksave.svg" alt="" class="logo">
+      <div class="app-title">
+        <h1>TikSave</h1>
+        <span id="app-status"><i></i> Comprobando…</span>
+      </div>
+    </header>
 
-    <label for="quality">Resolución de video</label>
-    <select id="quality">
-      <option value="best">Mejor disponible</option>
-      <option value="2160">2160p / 4K</option>
-      <option value="1440">1440p</option>
-      <option value="1080">1080p</option>
-      <option value="720">720p</option>
-      <option value="480">480p</option>
-      <option value="360">360p</option>
-    </select>
+    <section class="source-card">
+      <strong id="source-title">Pestaña actual</strong>
+      <p id="url">Leyendo pestaña…</p>
+    </section>
 
-    <div class="buttons">
-      <button data-mode="video" class="primary">Descargar MP4</button>
-      <button data-mode="mp3">Descargar MP3</button>
-      <button data-mode="audio">Solo audio</button>
-      <button id="open" class="ghost">Abrir opciones completas</button>
+    <div class="field-grid">
+      <label class="field">
+        <span>Calidad de video</span>
+        <select id="quality">
+          <option value="best">Mejor disponible</option>
+          <option value="2160">2160p / 4K</option>
+          <option value="1440">1440p</option>
+          <option value="1080">1080p</option>
+          <option value="720">720p</option>
+          <option value="480">480p</option>
+          <option value="360">360p</option>
+        </select>
+      </label>
     </div>
 
-    <div id="message"></div>
+    <label id="collection-row" class="check-row">
+      <input id="collection" type="checkbox">
+      <span>
+        <strong id="collection-title">Descargar lista completa</strong>
+        <small id="collection-help">Úsalo para playlists o colecciones.</small>
+      </span>
+    </label>
+
+    <label id="metadata-row" class="check-row">
+      <input id="metadata" type="checkbox" checked>
+      <span>
+        <strong>Completar datos de la canción</strong>
+        <small>Para MP3 de YouTube: artista, álbum y portada.</small>
+      </span>
+    </label>
+
+    <div class="buttons">
+      <button data-mode="video" class="primary">Video MP4</button>
+      <button data-mode="mp3">MP3</button>
+      <button data-mode="audio">Solo audio</button>
+    </div>
+
+    <section id="browser-media" class="media-card hidden">
+      <div>
+        <strong>Video reproduciéndose en esta pestaña</strong>
+        <small id="browser-media-info">Reproductor detectado.</small>
+      </div>
+      <button id="download-browser-media">Descargar</button>
+    </section>
+
+    <section id="progress-card" class="progress-card hidden">
+      <div class="progress-head">
+        <div>
+          <strong id="progress-title">Descargando…</strong>
+          <small id="progress-status">Preparando archivo</small>
+        </div>
+        <strong id="progress-percent">0%</strong>
+      </div>
+      <div class="track"><div id="progress-bar" class="bar"></div></div>
+      <div id="progress-details" class="progress-details"></div>
+      <button id="open-folder" class="folder hidden">Abrir carpeta de descargas</button>
+    </section>
+
+    <button id="open" class="more">Más opciones, carruseles y subtítulos</button>
+    <div id="message" class="message"></div>
   </main>
   <script src="popup.js"></script>
 </body>
