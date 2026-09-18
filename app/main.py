@@ -14,14 +14,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.analyzer import analyze as analyze_url
 from app.dezoom import install as install_dezoomify, status as dezoom_status
-from app.maxurl import install as install_maxurl, resolve as resolve_maxurl, status as maxurl_status
+from app.maxurl import download_original as download_maxurl_original, install as install_maxurl, resolve as resolve_maxurl, status as maxurl_status
+from app.image_tools import download_images as download_image_batch
 from app.downloader import (
     TikSaveDownloader,
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, InspectRequest, MaxUrlResolveRequest
+from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -58,6 +60,23 @@ def health() -> dict:
         "dezoomify": dezoom_status(),
         "maxurl": maxurl_status(),
     }
+
+
+@app.post("/api/analyze")
+def analyze_content(payload: InspectRequest) -> dict:
+    try:
+        return analyze_url(
+            str(payload.url),
+            downloader,
+            playlist=payload.playlist,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo analizar el contenido: {clean_error(exc)}",
+        ) from exc
 
 
 @app.post("/api/inspect")
@@ -164,6 +183,39 @@ def maxurl_engine_resolve(payload: MaxUrlResolveRequest) -> dict:
         raise HTTPException(
             status_code=502,
             detail=f"Image Max URL no pudo analizar la imagen: {clean_error(exc)}",
+        ) from exc
+
+
+@app.post("/api/maxurl/download")
+def maxurl_engine_download(payload: MaxUrlResolveRequest) -> dict:
+    try:
+        result = download_maxurl_original(
+            str(payload.url),
+            downloader.download_dir / "Originals",
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo descargar la imagen original: {clean_error(exc)}",
+        ) from exc
+
+
+@app.post("/api/images/download")
+def images_download(payload: ImageBatchDownloadRequest) -> dict:
+    try:
+        files = download_image_batch(
+            [str(url) for url in payload.urls],
+            downloader.download_dir / "Images",
+            referer=str(payload.page_url) if payload.page_url else None,
+        )
+        return {"ok": True, "count": len(files), "files": files}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudieron descargar las imágenes: {clean_error(exc)}",
         ) from exc
 
 
