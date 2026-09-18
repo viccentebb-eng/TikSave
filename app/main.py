@@ -14,12 +14,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.dezoom import install as install_dezoomify, status as dezoom_status
 from app.downloader import (
     TikSaveDownloader,
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, DownloadRequest, InspectRequest
+from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, InspectRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,6 +54,7 @@ def health() -> dict:
         "platforms": ["tiktok", "douyin", "youtube", "instagram", "facebook"],
         "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
         "subtitle_formats": ["srt", "vtt", "txt", "ass"],
+        "dezoomify": dezoom_status(),
     }
 
 
@@ -101,6 +103,34 @@ def start_browser_media(payload: BrowserMediaRequest) -> dict:
             clip_start=payload.clip_start,
             clip_end=payload.clip_end,
             precise_clip=payload.precise_clip,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/dezoom/status")
+def dezoom_engine_status() -> dict:
+    return dezoom_status()
+
+
+@app.post("/api/dezoom/install")
+def dezoom_engine_install() -> dict:
+    try:
+        return install_dezoomify()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo instalar dezoomify-rs: {clean_error(exc)}",
+        ) from exc
+
+
+@app.post("/api/dezoom/download", status_code=202)
+def start_dezoom(payload: DezoomRequest) -> dict:
+    try:
+        return downloader.enqueue_dezoom(
+            source_url=str(payload.source_url),
+            page_url=str(payload.page_url) if payload.page_url else None,
+            output_format=payload.output_format,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
