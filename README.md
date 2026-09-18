@@ -273,6 +273,51 @@ git pull
 
 Como esta versión añade `contextMenus`, conviene quitar y volver a cargar el complemento temporal desde `about:debugging`.
 
+
+
+## Rama experimental 0.12.0
+
+```text
+feature/native-image-engine-diagnostics
+```
+
+Cambios principales:
+
+- **Image Max URL deja de ser una dependencia del flujo normal.**
+- Nuevo motor integrado **TikSave Native Image**, sin Node.js ni instalación adicional.
+- El motor genera y prueba candidatos de mayor resolución para:
+  - Google / Googleusercontent / ggpht;
+  - WordPress;
+  - Shopify;
+  - Pinterest;
+  - Twitter/X;
+  - Cloudinary;
+  - parámetros genéricos de tamaño en URLs.
+- Cada candidato se verifica por HTTP antes de elegirlo; cuando es posible también se leen dimensiones de PNG, JPEG, GIF y WebP.
+- La opción **Original / máxima resolución** funciona desde la app web y desde el menú contextual de Firefox sin instalar motor.
+- Compatibilidad temporal con los antiguos endpoints `/api/maxurl/*`: ahora redirigen internamente al motor nativo.
+- Nuevo log persistente en:
+  - Windows: `%LOCALAPPDATA%\TikSave\logs\tiksave.log`
+- Se puede abrir el log desde:
+  - la página principal;
+  - el popup de Firefox;
+  - el menú contextual de TikSave.
+- Los errores del menú contextual también se envían al log, incluyendo URL, acción y detalle del fallo.
+- El analizador filtra más logos, avatares, badges y gráficos de interfaz para no confundirlos con la imagen principal.
+
+Para probar:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/native-image-engine-diagnostics
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Después recarga el complemento temporal en `about:debugging`.
+
 ## Licencia
 
 MIT.
