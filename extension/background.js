@@ -301,36 +301,84 @@ function fastOriginalCandidate(rawUrl) {
   }
 }
 
-async function openOriginalImage(source, pageUrl = null) {
-  const fast = fastOriginalCandidate(source);
+async function showImageOverlay(tabId, url, note = "") {
+  if (tabId == null) throw new Error("No pude identificar la pestaña actual.");
 
-  if (fast) {
-    await browser.tabs.create({ url: fast });
+  try {
+    await browser.tabs.sendMessage(tabId, {
+      type: "showImageOverlay",
+      url,
+      note,
+    });
+    return true;
+  } catch (error) {
+    await logExtensionError("image-overlay-open", error, { tabId, url });
+    return false;
+  }
+}
+
+async function updateImageOverlay(tabId, url, note = "") {
+  if (tabId == null) return false;
+  try {
+    await browser.tabs.sendMessage(tabId, {
+      type: "updateImageOverlay",
+      url,
+      note,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openOriginalImage(source, pageUrl = null, tabId = null) {
+  const fast = fastOriginalCandidate(source);
+  const initial = fast || source;
+
+  const shown = await showImageOverlay(
+    tabId,
+    initial,
+    fast ? "Versión ampliada detectada" : "Buscando una versión mayor…",
+  );
+
+  if (!shown) {
+    await browser.tabs.create({ url: initial });
+  }
+
+  try {
+    const result = await resolveNativeImage(source, pageUrl);
+    const target = result?.best?.final_url || result?.best?.url || initial;
+
+    if (shown && target !== initial) {
+      await updateImageOverlay(
+        tabId,
+        target,
+        result?.best?.width && result?.best?.height
+          ? `${result.best.width}×${result.best.height}`
+          : "Mejor variante encontrada",
+      );
+    }
+
     api("/api/diagnostics/event", {
       method: "POST",
       body: JSON.stringify({
         component: "firefox-extension",
-        action: "open-original-fast",
+        action: "open-original-overlay",
         level: "info",
-        message: fast,
-        details: { source, pageUrl },
+        message: target,
+        details: { source, pageUrl, fast: Boolean(fast) },
       }),
     }).catch(() => {});
-    return { url: fast, fast: true };
-  }
 
-  const pendingTab = await browser.tabs.create({ url: "about:blank", active: true });
-
-  try {
-    const result = await resolveNativeImage(source, pageUrl);
-    const target = result?.best?.final_url || result?.best?.url;
-    if (!target) throw new Error("TikSave no encontró una variante de imagen válida.");
-    await browser.tabs.update(pendingTab.id, { url: target });
-    return { url: target, fast: false, result };
+    return { url: target, fast: Boolean(fast), result };
   } catch (error) {
-    try {
-      await browser.tabs.remove(pendingTab.id);
-    } catch {}
+    if (!fast && shown) {
+      await updateImageOverlay(
+        tabId,
+        source,
+        "No encontré una variante mayor; mostrando la imagen disponible.",
+      );
+    }
     throw error;
   }
 }
@@ -440,7 +488,7 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === "tiksave-original-open") {
       if (!source) throw new Error("No encontré una imagen debajo del cursor.");
       const pageUrl = (contextTargetsByTab.get(tab && tab.id) || {}).pageUrl || (tab && tab.url) || null;
-      await openOriginalImage(source, pageUrl);
+      await openOriginalImage(source, pageUrl, tab && tab.id);
       return;
     }
 
@@ -752,6 +800,19 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       return api("/api/diagnostics/open-log", {
         method: "POST",
         body: "{}",
+      });
+
+    case "openImageInTab":
+      if (!message.url) throw new Error("Falta la URL de imagen.");
+      return browser.tabs.create({ url: message.url });
+
+    case "downloadDirectImage":
+      if (!message.url) throw new Error("Falta la URL de imagen.");
+      return browser.downloads.download({
+        url: message.url,
+        filename: "TikSave/Originals/" + safeFilenameFromUrl(message.url, "imagen-original.jpg"),
+        conflictAction: "uniquify",
+        saveAs: false,
       });
 
     case "getCleanMode":
