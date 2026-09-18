@@ -400,6 +400,40 @@ git reset --hard origin/feature/douyin-carousel-googlearts-fixes
 
 Después vuelve a cargar `extension/manifest.json` como complemento temporal desde `about:debugging`.
 
+## Rama experimental 0.15.0
+
+```text
+feature/queue-trim-dezoom-ux
+```
+
+Esta versión reorganiza TikSave alrededor de contenido y trabajos, no alrededor de una pantalla fija:
+
+- Si pegas varios enlaces, TikSave los analiza **de uno en uno**, crea una lista de contenido y te deja seleccionar cuál configurar. Las acciones ya no mezclan dos URLs en una sola interfaz.
+- Cada descarga se agrega a una **cola de trabajos visible** y conserva su progreso aunque sigas analizando otro enlace.
+- Los trabajos pueden **cancelarse**. Esto incluye descargas de yt-dlp y procesos externos de dezoomify-rs.
+- Los videos muestran **Recortar antes de descargar** antes de los botones de descarga. Acepta inicio/final y recorte preciso.
+- Las secciones cambian de orden según el contenido: video prioriza recorte/descarga; obras e imágenes priorizan máxima resolución e imágenes encontradas.
+- Dezoomify ya no inventa porcentajes sumando líneas de log. Si no existe porcentaje real, TikSave usa progreso indeterminado y muestra la fase: análisis, mosaicos, unión o finalización.
+- Al iniciar una reconstrucción se abre un **visor local en otra pestaña**. Mientras trabaja muestra mosaicos animados; al terminar carga la imagen real con zoom, ajustar y 100%.
+- Para Google Arts & Culture se fuerza el dezoomer `google_arts_and_culture`, `--largest`, máxima calidad y la URL de la página `/asset/`, evitando que una miniatura normal sea aceptada como resultado de máxima resolución.
+- En la extensión, las acciones de Google Arts suben al principio y se ocultan controles de video irrelevantes.
+- Douyin, Instagram, Facebook y TikTok tienen un segundo intento mediante **cookies locales de Firefox** cuando el extractor público falla. Las cookies no se incluyen en diagnósticos ni logs.
+- Stories de Instagram pueden aprovechar la sesión ya abierta en Firefox desde el backend local cuando yt-dlp puede leer ese perfil.
+- El popup también permite cancelar trabajos y abrir el visor de reconstrucción.
+
+Actualización recomendada, incluyendo el motor externo:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/queue-trim-dezoom-ux
+git reset --hard origin/feature/queue-trim-dezoom-ux
+.\scripts\install-windows.ps1 -ForceEngineUpdate
+.\scripts\run-windows.ps1
+```
+
+Después recarga `extension/manifest.json` desde `about:debugging`.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.

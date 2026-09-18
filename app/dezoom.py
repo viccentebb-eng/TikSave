@@ -22,7 +22,7 @@ from app.diagnostics import write_event
 RELEASE_API = "https://api.github.com/repos/lovasoa/dezoomify-rs/releases/latest"
 LICENSE_URL = "https://raw.githubusercontent.com/lovasoa/dezoomify-rs/master/LICENSE"
 SOURCE_URL = "https://github.com/lovasoa/dezoomify-rs"
-USER_AGENT = "TikSave/0.14.0 (https://github.com/viccentebb-eng/TikSave)"
+USER_AGENT = "TikSave/0.15.0 (https://github.com/viccentebb-eng/TikSave)"
 _STATUS_CACHE: tuple[float, dict] | None = None
 _STATUS_LOCK = threading.Lock()
 

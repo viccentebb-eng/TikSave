@@ -333,7 +333,18 @@ def job_file(job_id: str) -> FileResponse:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="El archivo terminado ya no existe.")
 
-    return FileResponse(path, filename=path.name)
+    media_type = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        content_disposition_type="inline",
+    )
 
 
 @app.get("/viewer/{job_id}")

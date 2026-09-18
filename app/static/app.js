@@ -196,6 +196,7 @@ function selectAnalysisItem(index) {
 
   const item = analysisItems[index];
   if (item.data) {
+    resetInspection();
     currentInspection = item.data;
     renderInspection(item.data);
     setAnalysisState(item.data.cached ? "Listo · caché" : "Listo", "ok");
