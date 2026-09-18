@@ -10,6 +10,8 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+import re
+import urllib.parse
 from urllib.parse import urlparse
 
 
@@ -419,4 +421,67 @@ def resolve(value: str) -> dict:
         "results": usable[:20],
         "engine": "Image Max URL",
         "source": status().get("source"),
+    }
+
+
+def _safe_filename(value: str, fallback: str = "imagen-original") -> str:
+    try:
+        parsed = urlparse(value)
+        leaf = urllib.parse.unquote(parsed.path.split("/")[-1])
+    except Exception:
+        leaf = ""
+
+    leaf = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", leaf).strip()
+    if not leaf:
+        leaf = fallback
+    return leaf[:140]
+
+
+def download_original(value: str, output_dir: Path) -> dict:
+    value = _validate_public_url(value)
+    result = resolve(value)
+    best = result.get("best") or {}
+
+    target_url = str(best.get("url") or "")
+    if not target_url:
+        raise RuntimeError("Image Max URL no encontró una versión mayor u original.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = str(best.get("filename") or "").strip() or _safe_filename(target_url)
+
+    parsed = urlparse(target_url)
+    suffix = Path(parsed.path).suffix.lower()
+    if not suffix or len(suffix) > 6:
+        suffix = ".jpg"
+    if not Path(filename).suffix:
+        filename += suffix
+
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", filename).strip() or f"imagen-original{suffix}"
+    target = output_dir / filename
+
+    base = target.stem
+    ext = target.suffix
+    counter = 2
+    while target.exists():
+        target = output_dir / f"{base} ({counter}){ext}"
+        counter += 1
+
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    for key, header_value in (best.get("headers") or {}).items():
+        if header_value is not None:
+            headers[str(key)] = str(header_value)
+
+    request = urllib.request.Request(target_url, headers=headers)
+    with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as output:
+        shutil.copyfileobj(response, output)
+
+    return {
+        "ok": True,
+        "path": str(target),
+        "url": target_url,
+        "engine": "Image Max URL",
+        "result": result,
     }
