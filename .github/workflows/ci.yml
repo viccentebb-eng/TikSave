@@ -27,7 +27,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Validate version consistency
-        run: python -c "import json, app; m=json.load(open('extension/manifest.json', encoding='utf-8')); assert app.__version__ == m['version'] == '0.15.0'"
+        run: python -c "import json, app; m=json.load(open('extension/manifest.json', encoding='utf-8')); assert app.__version__ == m['version'] == '0.15.1'"
 
       - name: Validate extension manifest
         run: python -m json.tool extension/manifest.json > /dev/null

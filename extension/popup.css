@@ -334,3 +334,4 @@ button.primary { background:#f4f5f7; border-color:#f4f5f7; color:#111318; }
 .dezoom-actions button { padding:8px 9px; }
 
 .progress-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.progress-actions button{padding:8px 9px}.cancel-action{border-color:#633943;background:#2b171c;color:#ffb9c2}.bar.indeterminate{width:38%!important;animation:popup-indeterminate 1.1s ease-in-out infinite}@keyframes popup-indeterminate{0%{transform:translateX(-120%)}50%{transform:translateX(120%)}100%{transform:translateX(290%)}}
+.folder{display:flex;align-items:center;justify-content:center;gap:7px}.folder svg{width:16px;height:16px;flex:none}

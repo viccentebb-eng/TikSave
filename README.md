@@ -400,11 +400,21 @@ git reset --hard origin/feature/douyin-carousel-googlearts-fixes
 
 Después vuelve a cargar `extension/manifest.json` como complemento temporal desde `about:debugging`.
 
-## Rama experimental 0.15.0
+## Rama experimental 0.15.1
 
 ```text
 feature/queue-trim-dezoom-ux
 ```
+
+Correcciones sobre 0.15.0:
+
+- Google Arts & Culture: corregido el error de ejecución `name 're' is not defined`.
+- Las URLs `/asset/` de Google Arts se limpian de parámetros de posición/zoom antes de enviarse a dezoomify-rs y se mantiene el dezoomer dedicado `google_arts_and_culture`.
+- JPEG de Dezoomify vuelve a la compresión recomendada por el proyecto (5) para evitar archivos absurdamente grandes sin perder resolución.
+- Los trabajos terminados, fallidos o cancelados salen de **Cola y progreso** y pasan a **Descargas / Historial**.
+- Los trabajos completados muestran un botón con icono de carpeta para abrir las descargas.
+- El recorte usa ahora una línea de tiempo visual de dos extremos; cuando FFmpeg y la fuente lo permiten, TikSave genera fotogramas reales de referencia. Si no, mantiene miniaturas de respaldo.
+- Douyin mantiene yt-dlp como primer intento, pero si falla aparece una acción explícita para abrir el video en Firefox; la extensión prioriza entonces la fuente de video que está reproduciendo el navegador.
 
 Esta versión reorganiza TikSave alrededor de contenido y trabajos, no alrededor de una pantalla fija:
 
