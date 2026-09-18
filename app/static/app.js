@@ -194,7 +194,7 @@ function renderSubtitleTracks(tracks) {
       <input type="checkbox" data-subtitle-code="${escapeHtml(track.code)}" ${index === 0 ? "checked" : ""}>
       <span>
         <strong>${escapeHtml(track.name || track.code)}</strong>
-        <small>${escapeHtml(track.code)} · ${track.automatic ? "automático" : "normal"}${track.formats?.length ? ` · ${escapeHtml(track.formats.join(", "))}` : ""}</small>
+        <small>${escapeHtml(track.code)} · ${track.automatic ? "generado automáticamente" : "incluido por el autor"}${track.formats?.length ? ` · ${escapeHtml(track.formats.join(", "))}` : ""}</small>
       </span>
     </label>
   `).join("");
@@ -524,3 +524,21 @@ $("open-folder").addEventListener("click", async () => {
     showMessage(err.message, "error");
   }
 });
+
+
+async function prefillFromSharedUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const sharedUrl = params.get("url");
+  if (!sharedUrl) return;
+
+  urlsInput.value = sharedUrl;
+  try {
+    await inspectFirst({ silent: true });
+  } catch {
+    // The normal UI will show errors when the user requests an action.
+  }
+
+  history.replaceState({}, "", window.location.pathname);
+}
+
+prefillFromSharedUrl();
