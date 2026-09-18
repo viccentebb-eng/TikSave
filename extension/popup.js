@@ -314,8 +314,10 @@ async function init() {
     setAppStatus("Abre TikSave en tu computadora", "error");
   }
 
-  if (currentTab?.id) {
+  if (!supportedUrl(currentUrl) && currentTab?.id) {
     renderBrowserMedia(await detectPlayingMedia(currentTab.id));
+  } else {
+    $("browser-media").classList.add("hidden");
   }
 
   try {
