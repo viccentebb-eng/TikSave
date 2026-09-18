@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
+from app.dezoom import run as run_dezoom
 from app.music import apply_music_metadata
 
 
@@ -486,6 +487,86 @@ class TikSaveDownloader:
         )
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
+
+    def enqueue_dezoom(
+        self,
+        source_url: str,
+        page_url: str | None = None,
+        output_format: str = "jpg",
+    ) -> dict[str, Any]:
+        source_url = validate_public_web_url(source_url)
+        referer = validate_public_web_url(page_url) if page_url else None
+
+        if output_format not in {"jpg", "png", "webp"}:
+            raise ValueError("Formato de imagen no compatible.")
+
+        job = self.jobs.create(
+            url=source_url,
+            mode="image",
+            platform="dezoom",
+            quality=output_format,
+            playlist=False,
+            selected_items=None,
+            music_metadata=False,
+            subtitle_format="srt",
+            subtitle_languages=None,
+            referer=referer,
+        )
+        self.pool.submit(self._dezoom, job.id)
+        return self.jobs.get(job.id) or {}
+
+    def _dezoom(self, job_id: str) -> None:
+        job = self.jobs.get(job_id)
+        if not job:
+            return
+
+        output_dir = self.download_dir / "Dezoom"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        output_path = output_dir / f"dezoom-{stamp}-{job_id[:6]}.{job['quality']}"
+
+        self.jobs.update(
+            job_id,
+            status="starting",
+            progress=2.0,
+            title="Imagen de alta resolución",
+        )
+
+        def note(message: str) -> None:
+            current = self.jobs.get(job_id) or {}
+            progress = float(current.get("progress") or 5.0)
+            if progress < 90:
+                progress = min(progress + 2.5, 90.0)
+            self.jobs.update(
+                job_id,
+                status="processing",
+                progress=progress,
+                metadata_note=self._safe_title(message),
+            )
+
+        try:
+            result, tail = run_dezoom(
+                source_url=job["url"],
+                output_path=output_path,
+                referer=job.get("referer"),
+                progress=note,
+            )
+            self.jobs.update(
+                job_id,
+                status="done",
+                progress=100.0,
+                title=result.name,
+                filename=str(result),
+                metadata_note=self._safe_title(tail.splitlines()[-1] if tail else "Imagen reconstruida."),
+                error=None,
+            )
+        except Exception as exc:
+            self.jobs.update(
+                job_id,
+                status="error",
+                progress=100.0,
+                error=clean_error(exc)[:1000],
+            )
 
     @staticmethod
     def _safe_title(value: str | None) -> str | None:
