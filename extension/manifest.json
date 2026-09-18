@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave Local",
-  "version": "0.2.0",
-  "description": "Envía el video actual de TikTok o YouTube a TikSave Local para guardarlo como MP4 o MP3.",
+  "version": "0.3.0",
+  "description": "Envía videos públicos de TikTok, YouTube, Instagram o Facebook a TikSave Local.",
   "permissions": ["activeTab"],
   "host_permissions": ["http://127.0.0.1:8173/*"],
   "action": {
