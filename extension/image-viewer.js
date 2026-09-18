@@ -18,6 +18,14 @@
   let naturalWidth = 0;
   let naturalHeight = 0;
   let loadToken = 0;
+  let panFrame = 0;
+  let panTargetX = 0;
+  let panTargetY = 0;
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragScrollX = 0;
+  let dragScrollY = 0;
   const zoomByIndex = new Map();
 
   function buttonStyle(width = "30px") {
@@ -91,10 +99,10 @@
 
       <div data-ts-viewport style="
         position:absolute;inset:0;overflow:auto;padding:72px 20px 24px;
-        display:flex;align-items:flex-start;justify-content:center;
+        display:block;
       ">
         <img data-ts-image alt="" draggable="false" style="
-          display:block;max-width:none;max-height:none;object-fit:contain;
+          display:block;margin:0 auto;max-width:none;max-height:none;object-fit:contain;
           box-shadow:0 18px 70px rgba(0,0,0,.55);user-select:none
         ">
       </div>
@@ -147,7 +155,7 @@
     });
 
     root.addEventListener("click", (event) => {
-      if (event.target === root || event.target === viewport) close();
+      if (event.target === root) close();
     });
 
     viewport.addEventListener(
@@ -163,6 +171,39 @@
       },
       { passive: false },
     );
+
+    viewport.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !isPannable()) return;
+      dragging = true;
+      if (panFrame) cancelAnimationFrame(panFrame);
+      panFrame = 0;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+      dragScrollX = viewport.scrollLeft;
+      dragScrollY = viewport.scrollTop;
+      viewport.style.cursor = "grabbing";
+      viewport.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    viewport.addEventListener("pointermove", (event) => {
+      if (dragging) {
+        viewport.scrollLeft = dragScrollX - (event.clientX - dragStartX);
+        viewport.scrollTop = dragScrollY - (event.clientY - dragStartY);
+        return;
+      }
+      panTowardPointer(event);
+    });
+
+    const stopDrag = (event) => {
+      if (!dragging) return;
+      dragging = false;
+      viewport.releasePointerCapture?.(event.pointerId);
+      updatePanCursor();
+    };
+
+    viewport.addEventListener("pointerup", stopDrag);
+    viewport.addEventListener("pointercancel", stopDrag);
 
     document.addEventListener("keydown", (event) => {
       if (!root || root.style.display === "none") return;
@@ -235,12 +276,63 @@
     return Math.min(1, maxW / naturalWidth, maxH / naturalHeight);
   }
 
+  function isPannable() {
+    return Boolean(
+      viewport &&
+      image?.src &&
+      (
+        viewport.scrollWidth > viewport.clientWidth + 2 ||
+        viewport.scrollHeight > viewport.clientHeight + 2
+      )
+    );
+  }
+
+  function updatePanCursor() {
+    if (!viewport) return;
+    viewport.style.cursor = isPannable() ? "move" : "default";
+  }
+
+  function animatePan() {
+    if (!viewport) return;
+    const dx = panTargetX - viewport.scrollLeft;
+    const dy = panTargetY - viewport.scrollTop;
+    viewport.scrollLeft += dx * 0.15;
+    viewport.scrollTop += dy * 0.15;
+
+    if (Math.abs(dx) > 0.7 || Math.abs(dy) > 0.7) {
+      panFrame = requestAnimationFrame(animatePan);
+    } else {
+      viewport.scrollLeft = panTargetX;
+      viewport.scrollTop = panTargetY;
+      panFrame = 0;
+    }
+  }
+
+  function panTowardPointer(event) {
+    if (!viewport || dragging || !isPannable()) return;
+
+    const rect = viewport.getBoundingClientRect();
+    const edge = 0.10;
+    const clamp = (value) => Math.min(1, Math.max(0, value));
+    const xRatio = clamp(
+      ((event.clientX - rect.left) / rect.width - edge) / (1 - edge * 2),
+    );
+    const yRatio = clamp(
+      ((event.clientY - rect.top) / rect.height - edge) / (1 - edge * 2),
+    );
+
+    panTargetX = Math.max(0, viewport.scrollWidth - viewport.clientWidth) * xRatio;
+    panTargetY = Math.max(0, viewport.scrollHeight - viewport.clientHeight) * yRatio;
+    if (!panFrame) panFrame = requestAnimationFrame(animatePan);
+  }
+
   function applyZoom() {
     if (!image || !naturalWidth || !naturalHeight) return;
     image.style.width = `${Math.max(1, Math.round(naturalWidth * zoom))}px`;
     image.style.height = `${Math.max(1, Math.round(naturalHeight * zoom))}px`;
     zoomByIndex.set(currentIndex, zoom);
     updateInfo(currentNote);
+    requestAnimationFrame(updatePanCursor);
   }
 
   function setZoom(value, anchor = null) {
@@ -250,17 +342,25 @@
 
     let oldX = 0;
     let oldY = 0;
-    if (anchor && viewport) {
-      oldX = viewport.scrollLeft + anchor.clientX;
-      oldY = viewport.scrollTop + anchor.clientY;
+    let localX = 0;
+    let localY = 0;
+    if (viewport) {
+      const rect = viewport.getBoundingClientRect();
+      localX = anchor ? anchor.clientX - rect.left : viewport.clientWidth / 2;
+      localY = anchor ? anchor.clientY - rect.top : viewport.clientHeight / 2;
+      oldX = viewport.scrollLeft + localX;
+      oldY = viewport.scrollTop + localY;
     }
 
     applyZoom();
 
-    if (anchor && viewport && oldZoom > 0) {
-      const ratio = zoom / oldZoom;
-      viewport.scrollLeft = oldX * ratio - anchor.clientX;
-      viewport.scrollTop = oldY * ratio - anchor.clientY;
+    if (viewport && oldZoom > 0) {
+      requestAnimationFrame(() => {
+        const ratio = zoom / oldZoom;
+        viewport.scrollLeft = Math.max(0, oldX * ratio - localX);
+        viewport.scrollTop = Math.max(0, oldY * ratio - localY);
+        updatePanCursor();
+      });
     }
   }
 
@@ -270,6 +370,7 @@
     if (viewport) {
       viewport.scrollLeft = 0;
       viewport.scrollTop = 0;
+      requestAnimationFrame(updatePanCursor);
     }
   }
 
@@ -396,6 +497,9 @@
     ++loadToken;
     root.style.display = "none";
     image?.removeAttribute("src");
+    if (panFrame) cancelAnimationFrame(panFrame);
+    panFrame = 0;
+    dragging = false;
     document.documentElement.style.removeProperty("overflow");
   }
 
