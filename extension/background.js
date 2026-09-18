@@ -36,13 +36,22 @@ function shortText(value, max = 160) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+async function createNotification(notificationId, options) {
+  try {
+    const createdId = await browser.notifications.create(notificationId, options);
+    return { ok: true, id: createdId };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+}
+
 async function notifyFinished(job) {
   const success = job.status === "done";
   const notificationId = `tiksave-${job.id}-${Date.now()}`;
 
   notificationJobs.set(notificationId, job.id);
 
-  await browser.notifications.create(notificationId, {
+  const result = await createNotification(notificationId, {
     type: "basic",
     iconUrl: browser.runtime.getURL("icons/tiksave.svg"),
     title: success ? "TikSave · Descarga terminada" : "TikSave · No se pudo descargar",
@@ -50,6 +59,13 @@ async function notifyFinished(job) {
       ? shortText(job.title || job.filename || "El archivo ya está listo.")
       : shortText(job.error || "La descarga terminó con un error."),
   });
+
+  if (!result.ok) {
+    await broadcastJob({
+      ...job,
+      notification_error: result.error,
+    });
+  }
 }
 
 async function trackJob(jobId, initialJob = null) {
@@ -121,6 +137,14 @@ browser.runtime.onMessage.addListener(async (message) => {
       return api("/api/open-folder", {
         method: "POST",
         body: "{}",
+      });
+
+    case "testNotification":
+      return createNotification(`tiksave-test-${Date.now()}`, {
+        type: "basic",
+        iconUrl: browser.runtime.getURL("icons/tiksave.svg"),
+        title: "TikSave · Notificación de prueba",
+        message: "Si ves este aviso, Firefox puede mostrar las notificaciones de TikSave.",
       });
 
     default:
