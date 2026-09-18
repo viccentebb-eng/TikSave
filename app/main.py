@@ -15,15 +15,16 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.analyzer import analyze as analyze_url
+from app.diagnostics import log_path as diagnostics_log_path, snapshot as diagnostics_snapshot, write_event
 from app.dezoom import install as install_dezoomify, status as dezoom_status
-from app.maxurl import download_original as download_maxurl_original, install as install_maxurl, resolve as resolve_maxurl, status as maxurl_status
+from app.native_image import download as download_native_image, resolve as resolve_native_image, status as native_image_status
 from app.image_tools import download_images as download_image_batch
 from app.downloader import (
     TikSaveDownloader,
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, DezoomRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest
+from app.models import BrowserMediaRequest, DezoomRequest, DiagnosticEventRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest, NativeImageRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -58,7 +59,7 @@ def health() -> dict:
         "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
         "subtitle_formats": ["srt", "vtt", "txt", "ass"],
         "dezoomify": dezoom_status(),
-        "maxurl": maxurl_status(),
+        "native_image": native_image_status(),
     }
 
 
@@ -157,46 +158,80 @@ def start_dezoom(payload: DezoomRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/maxurl/status")
-def maxurl_engine_status() -> dict:
-    return maxurl_status()
+@app.get("/api/image/status")
+def native_image_engine_status() -> dict:
+    return native_image_status()
 
 
-@app.post("/api/maxurl/install")
-def maxurl_engine_install() -> dict:
+@app.post("/api/image/resolve")
+def native_image_engine_resolve(payload: NativeImageRequest) -> dict:
     try:
-        return install_maxurl()
+        return resolve_native_image(
+            str(payload.url),
+            referer=str(payload.page_url) if payload.page_url else None,
+        )
+    except ValueError as exc:
+        write_event("api", "image-resolve", level="warning", message=str(payload.url), exc=exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        write_event("api", "image-resolve", level="error", message=str(payload.url), exc=exc)
         raise HTTPException(
             status_code=502,
-            detail=f"No se pudo instalar Image Max URL: {clean_error(exc)}",
+            detail=f"TikSave Native Image no pudo analizar la imagen: {clean_error(exc)}",
         ) from exc
 
 
-@app.post("/api/maxurl/resolve")
-def maxurl_engine_resolve(payload: MaxUrlResolveRequest) -> dict:
+@app.post("/api/image/download")
+def native_image_engine_download(payload: NativeImageRequest) -> dict:
     try:
-        return resolve_maxurl(str(payload.url))
+        return download_native_image(
+            str(payload.url),
+            downloader.download_dir / "Originals",
+            referer=str(payload.page_url) if payload.page_url else None,
+        )
     except ValueError as exc:
+        write_event("api", "image-download", level="warning", message=str(payload.url), exc=exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        write_event("api", "image-download", level="error", message=str(payload.url), exc=exc)
         raise HTTPException(
             status_code=502,
-            detail=f"Image Max URL no pudo analizar la imagen: {clean_error(exc)}",
+            detail=f"No se pudo descargar la imagen original: {clean_error(exc)}",
+        ) from exc
+
+
+# Compatibility aliases for extension builds prior to 0.12.
+@app.get("/api/maxurl/status")
+def legacy_maxurl_status() -> dict:
+    return native_image_status()
+
+
+@app.post("/api/maxurl/install")
+def legacy_maxurl_install() -> dict:
+    return native_image_status()
+
+
+@app.post("/api/maxurl/resolve")
+def legacy_maxurl_resolve(payload: MaxUrlResolveRequest) -> dict:
+    try:
+        return resolve_native_image(str(payload.url))
+    except Exception as exc:
+        write_event("api", "legacy-maxurl-resolve", level="error", message=str(payload.url), exc=exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"TikSave Native Image no pudo analizar la imagen: {clean_error(exc)}",
         ) from exc
 
 
 @app.post("/api/maxurl/download")
-def maxurl_engine_download(payload: MaxUrlResolveRequest) -> dict:
+def legacy_maxurl_download(payload: MaxUrlResolveRequest) -> dict:
     try:
-        result = download_maxurl_original(
+        return download_native_image(
             str(payload.url),
             downloader.download_dir / "Originals",
         )
-        return result
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        write_event("api", "legacy-maxurl-download", level="error", message=str(payload.url), exc=exc)
         raise HTTPException(
             status_code=502,
             detail=f"No se pudo descargar la imagen original: {clean_error(exc)}",
@@ -217,6 +252,39 @@ def images_download(payload: ImageBatchDownloadRequest) -> dict:
             status_code=502,
             detail=f"No se pudieron descargar las imágenes: {clean_error(exc)}",
         ) from exc
+
+
+@app.get("/api/diagnostics")
+def diagnostics(limit: int = 50) -> dict:
+    return diagnostics_snapshot(limit)
+
+
+@app.post("/api/diagnostics/event")
+def diagnostics_event(payload: DiagnosticEventRequest) -> dict:
+    item = write_event(
+        payload.component,
+        payload.action,
+        level=payload.level,
+        message=payload.message,
+        details=payload.details,
+    )
+    return {"ok": True, "event": item}
+
+
+@app.post("/api/diagnostics/open-log")
+def open_diagnostics_log() -> dict:
+    path = diagnostics_log_path()
+    path.touch(exist_ok=True)
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo abrir el log: {exc}") from exc
+    return {"ok": True, "path": str(path)}
 
 
 @app.get("/api/jobs/{job_id}")
