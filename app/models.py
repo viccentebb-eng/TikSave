@@ -3,8 +3,9 @@ from typing import Literal
 from pydantic import BaseModel, HttpUrl
 
 
-DownloadMode = Literal["video", "mp3", "audio"]
+DownloadMode = Literal["video", "mp3", "audio", "subtitles"]
 VideoQuality = Literal["best", "2160", "1440", "1080", "720", "480", "360"]
+SubtitleFormat = Literal["srt", "vtt", "txt", "ass"]
 
 
 class InspectRequest(BaseModel):
@@ -17,3 +18,7 @@ class DownloadRequest(BaseModel):
     mode: DownloadMode = "video"
     quality: VideoQuality = "best"
     playlist: bool = False
+    selected_items: list[int] | None = None
+    music_metadata: bool = False
+    subtitle_format: SubtitleFormat = "srt"
+    subtitle_languages: list[str] | None = None
