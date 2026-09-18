@@ -50,14 +50,15 @@ def health() -> dict:
         "name": "TikSave Local",
         "version": __version__,
         "download_dir": str(downloader.download_dir),
-        "platforms": ["tiktok", "youtube"],
+        "platforms": ["tiktok", "youtube", "instagram", "facebook"],
+        "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
     }
 
 
 @app.post("/api/inspect")
 def inspect_media(payload: InspectRequest) -> dict:
     try:
-        return downloader.inspect(str(payload.url))
+        return downloader.inspect(str(payload.url), playlist=payload.playlist)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -71,7 +72,12 @@ def inspect_media(payload: InspectRequest) -> dict:
 def start_download(payload: DownloadRequest) -> dict:
     try:
         validate_supported_url(str(payload.url))
-        return downloader.enqueue(str(payload.url), payload.mode)
+        return downloader.enqueue(
+            str(payload.url),
+            payload.mode,
+            quality=payload.quality,
+            playlist=payload.playlist,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
