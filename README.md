@@ -233,6 +233,46 @@ git pull
 
 Después vuelve a cargar `extension/manifest.json` desde `about:debugging`.
 
+
+
+## Rama experimental 0.11.0
+
+```text
+feature/maxurl-context-googlearts
+```
+
+Novedades:
+
+- La pantalla principal ya no asume que todos los enlaces son TikTok/YouTube/etc.
+- Al pegar un solo enlace, TikSave lo **analiza automáticamente** y muestra únicamente las opciones disponibles:
+  - video / audio / MP3;
+  - listas y colecciones;
+  - subtítulos;
+  - imágenes encontradas;
+  - original / máxima resolución mediante Image Max URL;
+  - reconstrucción por mosaicos mediante dezoomify-rs.
+- Páginas web genéricas y visores como Google Arts & Culture se analizan buscando metadatos, imágenes, HLS/DASH y protocolos IIIF/Deep Zoom/Zoomify.
+- Integración opcional de **Image Max URL** (`qsniyg/maxurl`, licencia Apache-2.0). TikSave descarga el userscript oficial y un runtime Node.js local si hace falta.
+- Menú contextual de Firefox **TikSave** con:
+  - Abrir imagen original / máxima resolución.
+  - Descargar imagen original / máxima resolución.
+  - Reconstruir imagen por mosaicos.
+  - Descargar video de esta página.
+  - Abrir esta página en TikSave.
+
+Para probar:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/maxurl-context-googlearts
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Como esta versión añade `contextMenus`, conviene quitar y volver a cargar el complemento temporal desde `about:debugging`.
+
 ## Licencia
 
 MIT.
