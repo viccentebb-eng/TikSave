@@ -13,12 +13,21 @@ from urllib.parse import urlparse
 import yt_dlp
 
 
-ALLOWED_HOSTS = {
+TIKTOK_HOSTS = {
     "tiktok.com",
     "www.tiktok.com",
     "m.tiktok.com",
     "vm.tiktok.com",
     "vt.tiktok.com",
+}
+
+YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtu.be",
+    "www.youtube-nocookie.com",
 }
 
 # TikTok currently varies its anti-bot response according to the HTTP User-Agent.
@@ -38,14 +47,29 @@ RETRYABLE_TIKTOK_ERRORS = (
 )
 
 
-def validate_tiktok_url(value: str) -> str:
+def detect_platform(value: str) -> str | None:
+    parsed = urlparse(value.strip())
+    host = (parsed.hostname or "").lower()
+
+    if host in TIKTOK_HOSTS or host.endswith(".tiktok.com"):
+        return "tiktok"
+
+    if host in YOUTUBE_HOSTS or host.endswith(".youtube.com"):
+        return "youtube"
+
+    return None
+
+
+def validate_supported_url(value: str) -> str:
     value = value.strip()
     parsed = urlparse(value)
-    host = (parsed.hostname or "").lower()
+
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("El enlace debe comenzar con http:// o https://")
-    if host not in ALLOWED_HOSTS and not host.endswith(".tiktok.com"):
-        raise ValueError("Solo se admiten enlaces de TikTok.")
+
+    if not detect_platform(value):
+        raise ValueError("Solo se admiten enlaces de TikTok o YouTube.")
+
     return value
 
 
@@ -79,6 +103,7 @@ class Job:
     id: str
     url: str
     mode: str
+    platform: str
     status: str = "queued"
     progress: float = 0.0
     speed: str | None = None
@@ -93,8 +118,8 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def create(self, url: str, mode: str) -> Job:
-        job = Job(id=uuid.uuid4().hex, url=url, mode=mode)
+    def create(self, url: str, mode: str, platform: str) -> Job:
+        job = Job(id=uuid.uuid4().hex, url=url, mode=mode, platform=platform)
         with self._lock:
             self._jobs[job.id] = job
         return job
@@ -129,13 +154,25 @@ class TikSaveDownloader:
                 "Accept-Language": "es-MX,es;q=0.9,en;q=0.7",
             },
             "retries": 2,
+            "fragment_retries": 2,
         }
 
-    def inspect(self, url: str) -> dict[str, Any]:
-        url = validate_tiktok_url(url)
-        last_error: Exception | None = None
+    @staticmethod
+    def _agents_for(platform: str) -> tuple[str, ...]:
+        if platform == "tiktok":
+            return browser_user_agents()
+        return (browser_user_agents()[0],)
 
-        for user_agent in browser_user_agents():
+    def inspect(self, url: str) -> dict[str, Any]:
+        url = validate_supported_url(url)
+        platform = detect_platform(url)
+        if not platform:
+            raise ValueError("Plataforma no compatible.")
+
+        last_error: Exception | None = None
+        agents = self._agents_for(platform)
+
+        for user_agent in agents:
             opts = {
                 **self._base_options(user_agent),
                 "skip_download": True,
@@ -143,26 +180,32 @@ class TikSaveDownloader:
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
+
                 return {
                     "id": info.get("id"),
-                    "title": info.get("title") or info.get("description") or "TikTok",
-                    "uploader": info.get("uploader") or info.get("creator"),
+                    "platform": platform,
+                    "title": info.get("title") or info.get("description") or platform.title(),
+                    "uploader": info.get("uploader") or info.get("creator") or info.get("channel"),
                     "thumbnail": info.get("thumbnail"),
                     "duration": info.get("duration"),
                     "webpage_url": info.get("webpage_url") or url,
                 }
             except Exception as exc:
                 last_error = exc
-                if not is_retryable_tiktok_error(exc):
+                if platform != "tiktok" or not is_retryable_tiktok_error(exc):
                     break
 
         if last_error:
             raise last_error
-        raise RuntimeError("TikTok no devolvió información del video.")
+        raise RuntimeError("La plataforma no devolvió información del video.")
 
     def enqueue(self, url: str, mode: str) -> dict[str, Any]:
-        url = validate_tiktok_url(url)
-        job = self.jobs.create(url=url, mode=mode)
+        url = validate_supported_url(url)
+        platform = detect_platform(url)
+        if not platform:
+            raise ValueError("Plataforma no compatible.")
+
+        job = self.jobs.create(url=url, mode=mode, platform=platform)
         self.pool.submit(self._download, job.id)
         return self.jobs.get(job.id) or {}
 
@@ -177,6 +220,7 @@ class TikSaveDownloader:
         if not job:
             return
 
+        platform = job["platform"]
         self.jobs.update(job_id, status="starting")
 
         def progress_hook(data: dict[str, Any]) -> None:
@@ -236,8 +280,9 @@ class TikSaveDownloader:
             return
 
         last_error: Exception | None = None
+        agents = self._agents_for(platform)
 
-        for attempt, user_agent in enumerate(browser_user_agents(), start=1):
+        for attempt, user_agent in enumerate(agents, start=1):
             common: dict[str, Any] = {
                 **self._base_options(user_agent),
                 **mode_options,
@@ -256,11 +301,14 @@ class TikSaveDownloader:
                     eta=None,
                     error=None,
                 )
+
                 with yt_dlp.YoutubeDL(common) as ydl:
                     info = ydl.extract_info(job["url"], download=True)
                     final_name = ydl.prepare_filename(info)
+
                     if mode == "mp3":
                         final_name = str(Path(final_name).with_suffix(".mp3"))
+
                     self.jobs.update(
                         job_id,
                         status="done",
@@ -271,23 +319,31 @@ class TikSaveDownloader:
                         eta=None,
                     )
                     return
+
             except Exception as exc:
                 last_error = exc
-                if not is_retryable_tiktok_error(exc):
+
+                if (
+                    platform != "tiktok"
+                    or not is_retryable_tiktok_error(exc)
+                    or attempt >= len(agents)
+                ):
                     break
-                if attempt < len(browser_user_agents()):
-                    self.jobs.update(
-                        job_id,
-                        status="starting",
-                        progress=0.0,
-                        error=None,
-                    )
+
+                self.jobs.update(
+                    job_id,
+                    status="starting",
+                    progress=0.0,
+                    error=None,
+                )
 
         error_text = clean_error(last_error or "Error desconocido")
-        if is_retryable_tiktok_error(error_text):
+
+        if platform == "tiktok" and is_retryable_tiktok_error(error_text):
             error_text = (
                 "TikTok rechazó temporalmente la petición del extractor incluso después "
                 "de probar varios perfiles de navegador. Vuelve a intentar; si continúa, "
                 "TikTok puede estar aplicando una restricción temporal a esta conexión."
             )
+
         self.jobs.update(job_id, status="error", error=error_text[:1000])
