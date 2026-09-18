@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>TikSave Local</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
+      <h1>TikSave</h1>
+      <p>Guarda videos o audio de TikTok directamente en tu computadora.</p>
+    </section>
+
+    <section class="card">
+      <label for="url">Enlace de TikTok</label>
+      <div class="url-row">
+        <input id="url" type="url" placeholder="https://www.tiktok.com/@usuario/video/..." autocomplete="off" spellcheck="false">
+        <button id="inspect" class="secondary">Vista previa</button>
+      </div>
+
+      <div id="preview" class="preview hidden">
+        <img id="thumb" alt="Miniatura del TikTok">
+        <div>
+          <strong id="title"></strong>
+          <span id="uploader"></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button data-mode="video" class="primary">Descargar MP4</button>
+        <button data-mode="mp3">Descargar MP3</button>
+        <button data-mode="audio">Audio original</button>
+      </div>
+
+      <div id="job" class="job hidden">
+        <div class="job-head">
+          <span id="status">Preparando…</span>
+          <span id="percent">0%</span>
+        </div>
+        <div class="track"><div id="bar" class="bar"></div></div>
+        <div id="details" class="details"></div>
+      </div>
+
+      <div id="message" class="message hidden"></div>
+
+      <div class="footer-actions">
+        <button id="paste" class="ghost">Pegar desde portapapeles</button>
+        <button id="open-folder" class="ghost">Abrir carpeta de descargas</button>
+      </div>
+    </section>
+
+    <p class="legal">Úsalo únicamente con contenido público que tengas derecho a guardar. TikSave no inicia sesión ni evita restricciones privadas.</p>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
