@@ -439,7 +439,12 @@ function renderImages(images) {
 
   grid.innerHTML = detectedImages.map((item, index) => `
     <label class="image-choice">
-      <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.alt || `Imagen ${index + 1}`)}">
+      <img
+        src="${escapeHtml(item.url)}"
+        alt="${escapeHtml(item.alt || `Imagen ${index + 1}`)}"
+        data-view-image-index="${index}"
+        title="Abrir en visor grande"
+      >
       <input type="checkbox" data-image-index="${index}" checked>
       <span>${index + 1}</span>
     </label>
@@ -451,6 +456,30 @@ function selectedImages() {
     .map((input) => detectedImages[Number(input.dataset.imageIndex)])
     .filter(Boolean);
 }
+
+$("image-grid").addEventListener("click", async (event) => {
+  const target = event.target.closest("[data-view-image-index]");
+  if (!target || !currentTab?.id) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const index = Number(target.dataset.viewImageIndex);
+  const urls = detectedImages.map((item) => item.url).filter(Boolean);
+  if (!Number.isInteger(index) || !urls[index]) return;
+
+  try {
+    await browser.tabs.sendMessage(currentTab.id, {
+      type: "showImageOverlay",
+      urls,
+      index,
+      pageUrl: currentUrl,
+      note: urls.length > 1 ? `Carrusel · ${index + 1} / ${urls.length}` : "",
+    });
+  } catch (error) {
+    say(error?.message || "Recarga la pestaña para activar el visor de TikSave.", "error");
+  }
+});
 
 function renderDezoomSources(sources) {
   detectedZoomSources = sources || [];
@@ -964,10 +993,9 @@ async function init() {
     const platform = currentPlatform();
 
     if (["Instagram", "TikTok", "Douyin"].includes(platform)) {
-      renderImages(await detectPageImages(currentTab.id));
-      setTimeout(async () => {
-        renderImages(await detectPageImages(currentTab.id));
-      }, 1400);
+      detectPageImages(currentTab.id)
+        .then((images) => renderImages(images))
+        .catch(() => renderImages([]));
     } else {
       $("image-card").classList.add("hidden");
     }

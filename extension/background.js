@@ -902,6 +902,16 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     case "downloadMaxUrl":
       return downloadResolvedImage(message.url, message.pageUrl || null);
 
+    case "resolveViewerImage":
+      if (!message.url) throw new Error("Falta la URL de imagen.");
+      return resolveNativeImage(message.url, message.pageUrl || null);
+
+    case "diagnosticEvent":
+      return api("/api/diagnostics/event", {
+        method: "POST",
+        body: JSON.stringify(message.payload || {}),
+      });
+
     case "openDiagnosticsLog":
       return api("/api/diagnostics/open-log", {
         method: "POST",
