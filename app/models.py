@@ -35,3 +35,9 @@ class BrowserMediaRequest(BaseModel):
     clip_start: float | None = None
     clip_end: float | None = None
     precise_clip: bool = False
+
+
+class DezoomRequest(BaseModel):
+    source_url: HttpUrl
+    page_url: HttpUrl | None = None
+    output_format: Literal["jpg", "png", "webp"] = "jpg"
