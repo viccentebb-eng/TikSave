@@ -2,6 +2,67 @@ const API = "http://127.0.0.1:8173";
 const activeJobs = new Map();
 const recentJobs = [];
 const notificationJobs = new Map();
+const streamsByTab = new Map();
+
+function rememberStream(details) {
+  if (details.tabId == null || details.tabId < 0) return;
+
+  const url = String(details.url || "");
+  if (!/(?:\.m3u8|\.mpd)(?:[?#]|$)/i.test(url)) return;
+
+  const current = streamsByTab.get(details.tabId) || [];
+  const next = [
+    {
+      url,
+      frameId: details.frameId,
+      type: /\.m3u8(?:[?#]|$)/i.test(url) ? "hls" : "dash",
+      timeStamp: details.timeStamp || Date.now(),
+    },
+    ...current.filter((item) => item.url !== url),
+  ].slice(0, 12);
+
+  streamsByTab.set(details.tabId, next);
+}
+
+browser.webRequest.onBeforeRequest.addListener(
+  rememberStream,
+  {
+    urls: ["<all_urls>"],
+    types: ["xmlhttprequest", "media", "other"],
+  },
+);
+
+browser.tabs.onRemoved.addListener((tabId) => {
+  streamsByTab.delete(tabId);
+});
+
+async function getCleanMode() {
+  const stored = await browser.storage.local.get("cleanMode");
+  return Boolean(stored.cleanMode);
+}
+
+async function setCleanMode(enabled) {
+  if (enabled) {
+    await browser.declarativeNetRequest.updateEnabledRulesets({
+      enableRulesetIds: ["clean_ads"],
+    });
+  } else {
+    await browser.declarativeNetRequest.updateEnabledRulesets({
+      disableRulesetIds: ["clean_ads"],
+    });
+  }
+
+  await browser.storage.local.set({ cleanMode: Boolean(enabled) });
+  return { enabled: Boolean(enabled) };
+}
+
+(async () => {
+  try {
+    await setCleanMode(await getCleanMode());
+  } catch {
+    // The rest of TikSave continues working even if clean mode cannot initialize.
+  }
+})();
 
 async function api(path, options = {}) {
   const response = await fetch(`${API}${path}`, {
@@ -132,6 +193,15 @@ browser.runtime.onMessage.addListener(async (message) => {
 
     case "getRecentJobs":
       return recentJobs;
+
+    case "getDetectedStreams":
+      return streamsByTab.get(message.tabId) || [];
+
+    case "getCleanMode":
+      return { enabled: await getCleanMode() };
+
+    case "setCleanMode":
+      return setCleanMode(Boolean(message.enabled));
 
     case "openFolder":
       return api("/api/open-folder", {
