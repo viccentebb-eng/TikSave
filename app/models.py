@@ -41,3 +41,7 @@ class DezoomRequest(BaseModel):
     source_url: HttpUrl
     page_url: HttpUrl | None = None
     output_format: Literal["jpg", "png", "webp"] = "jpg"
+
+
+class MaxUrlResolveRequest(BaseModel):
+    url: HttpUrl
