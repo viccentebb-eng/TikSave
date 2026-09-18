@@ -1,5 +1,6 @@
 const API = "http://127.0.0.1:8173";
 const activeJobs = new Map();
+const recentJobs = [];
 const notificationJobs = new Map();
 
 async function api(path, options = {}) {
@@ -51,19 +52,22 @@ async function notifyFinished(job) {
   });
 }
 
-async function trackJob(jobId) {
+async function trackJob(jobId, initialJob = null) {
   if (activeJobs.has(jobId)) return;
 
-  activeJobs.set(jobId, true);
+  activeJobs.set(jobId, initialJob || { id: jobId, status: "queued", progress: 0 });
   await updateBadge();
 
   while (activeJobs.has(jobId)) {
     try {
       const job = await api(`/api/jobs/${jobId}`);
+      activeJobs.set(jobId, job);
       await broadcastJob(job);
 
       if (job.status === "done" || job.status === "error") {
         activeJobs.delete(jobId);
+        recentJobs.unshift(job);
+        recentJobs.splice(5);
         await updateBadge();
         await notifyFinished(job);
         return;
@@ -89,7 +93,7 @@ async function startJob(path, payload) {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  trackJob(job.id);
+  trackJob(job.id, job);
   return job;
 }
 
@@ -106,6 +110,12 @@ browser.runtime.onMessage.addListener(async (message) => {
 
     case "getJob":
       return api(`/api/jobs/${message.jobId}`);
+
+    case "getActiveJobs":
+      return [...activeJobs.values()];
+
+    case "getRecentJobs":
+      return recentJobs;
 
     case "openFolder":
       return api("/api/open-folder", {
