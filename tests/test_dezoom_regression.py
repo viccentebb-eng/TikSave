@@ -6,7 +6,7 @@ import app.dezoom as dezoom
 
 class DezoomRegressionTests(unittest.TestCase):
     def test_regex_module_is_available_for_progress_parser(self):
-        self.assertIsNotNone(dezoom.re.search(r"\\d+%", "42%"))
+        self.assertIsNotNone(dezoom.re.search(r"\d+%", "42%"))
 
     def test_google_arts_asset_can_be_stripped_to_canonical_path(self):
         value = (
