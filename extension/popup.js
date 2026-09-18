@@ -278,35 +278,81 @@ async function detectPlayingMedia(tabId) {
 }
 
 async function detectPageImages(tabId) {
+  const merged = new Map();
+
+  function absorb(items = []) {
+    for (const item of items) {
+      if (!item?.url) continue;
+
+      let key = item.url;
+      try {
+        const parsed = new URL(item.url);
+        const host = parsed.hostname.toLowerCase();
+        key = /(fbcdn\.net|cdninstagram\.com|tiktokcdn|muscdn|byteimg|douyincdn)/i.test(host)
+          ? `${host}${parsed.pathname}`
+          : parsed.href;
+      } catch {}
+
+      const existing = merged.get(key);
+      if (!existing || Number(item.score || 0) > Number(existing.score || 0)) {
+        merged.set(key, item);
+      }
+    }
+  }
+
+  try {
+    const scan = browser.tabs.sendMessage(tabId, { type: "scanSocialImages" });
+    const timeout = new Promise((resolve) => setTimeout(() => resolve([]), 6500));
+    absorb(await Promise.race([scan, timeout]));
+  } catch {
+    // Older/open tabs may not have the new scanner until they are reloaded.
+  }
+
   try {
     const results = await browser.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
+        function bestSrcset(srcset) {
+          if (!srcset) return null;
+          return srcset
+            .split(",")
+            .map((part) => {
+              const pieces = part.trim().split(/\s+/);
+              const url = pieces[0] || "";
+              let score = 0;
+              const descriptor = pieces[1] || "";
+              if (/\d+w$/i.test(descriptor)) score = Number(descriptor.slice(0, -1)) || 0;
+              else if (/\d+(?:\.\d+)?x$/i.test(descriptor)) score = (Number(descriptor.slice(0, -1)) || 0) * 1000;
+              return { url, score };
+            })
+            .filter((item) => /^https?:\/\//i.test(item.url))
+            .sort((a, b) => b.score - a.score)[0]?.url || null;
+        }
+
         function candidateFromImage(img) {
           const rect = img.getBoundingClientRect();
-          const visible =
-            rect.width >= 140 &&
-            rect.height >= 140 &&
-            rect.bottom > 0 &&
-            rect.right > 0 &&
-            rect.top < innerHeight &&
-            rect.left < innerWidth;
-
-          if (!visible) return null;
-
-          const url = img.currentSrc || img.src || "";
-          if (!/^https?:\/\//i.test(url)) return null;
-
-          const area = rect.width * rect.height;
+          const area = Math.max(0, rect.width) * Math.max(0, rect.height);
           const naturalArea = (img.naturalWidth || 0) * (img.naturalHeight || 0);
           const inContent = Boolean(img.closest("article, main, [role='dialog']"));
-          const score = area + Math.min(naturalArea / 8, 300000) + (inContent ? 250000 : 0);
+          const smallSquare =
+            (img.naturalWidth || 0) <= 240 &&
+            (img.naturalHeight || 0) <= 240 &&
+            Math.abs((img.naturalWidth || 0) - (img.naturalHeight || 0)) < 10;
+
+          const url = bestSrcset(img.getAttribute("srcset")) || img.currentSrc || img.src || "";
+          if (!/^https?:\/\//i.test(url)) return null;
+
+          const score =
+            area +
+            Math.min(naturalArea / 4, 500000) +
+            (inContent ? 300000 : 0) -
+            (smallSquare ? 220000 : 0);
 
           return {
             url,
             score,
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
+            width: img.naturalWidth || Math.round(rect.width),
+            height: img.naturalHeight || Math.round(rect.height),
             alt: img.alt || "",
           };
         }
@@ -332,27 +378,25 @@ async function detectPageImages(tabId) {
 
         return images
           .sort((a, b) => b.score - a.score)
-          .slice(0, 30);
+          .slice(0, 40);
       },
     });
 
-    const merged = new Map();
-
-    for (const frame of results) {
-      for (const item of frame.result || []) {
-        const existing = merged.get(item.url);
-        if (!existing || item.score > existing.score) {
-          merged.set(item.url, item);
-        }
-      }
-    }
-
-    return [...merged.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 20);
+    for (const frame of results) absorb(frame.result || []);
   } catch {
-    return [];
+    // The social scanner may still have produced useful results.
   }
+
+  return [...merged.values()]
+    .filter((item) => {
+      const lower = `${item.url} ${item.alt || ""}`.toLowerCase();
+      if (/(profile|avatar|sprite|emoji|logo)/.test(lower) && Number(item.score || 0) < 260000) {
+        return false;
+      }
+      return Number(item.score || 0) > 20000;
+    })
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+    .slice(0, 30);
 }
 
 function currentPlatform() {
