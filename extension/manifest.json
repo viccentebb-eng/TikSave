@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TikSave Local",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Envía videos públicos de TikTok, YouTube, Instagram o Facebook a TikSave Local.",
   "permissions": ["activeTab"],
   "host_permissions": ["http://127.0.0.1:8173/*"],
