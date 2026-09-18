@@ -21,6 +21,22 @@ ALLOWED_HOSTS = {
     "vt.tiktok.com",
 }
 
+# TikTok currently varies its anti-bot response according to the HTTP User-Agent.
+# Keep more than one normal browser UA so TikSave can retry without asking the
+# user to change yt-dlp flags manually.
+DEFAULT_USER_AGENTS = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
+)
+
+ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+RETRYABLE_TIKTOK_ERRORS = (
+    "Unexpected response from webpage request",
+    "Unable to extract universal data for rehydration",
+)
+
 
 def validate_tiktok_url(value: str) -> str:
     value = value.strip()
@@ -38,6 +54,24 @@ def default_download_dir() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / "Downloads" / "TikSave").resolve()
+
+
+def browser_user_agents() -> tuple[str, ...]:
+    configured = os.getenv("TIKSAVE_USER_AGENT", "").strip()
+    if configured:
+        return (configured, *DEFAULT_USER_AGENTS)
+    return DEFAULT_USER_AGENTS
+
+
+def clean_error(value: Exception | str) -> str:
+    text = ANSI_RE.sub("", str(value))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def is_retryable_tiktok_error(value: Exception | str) -> bool:
+    text = clean_error(value)
+    return any(marker.lower() in text.lower() for marker in RETRYABLE_TIKTOK_ERRORS)
 
 
 @dataclass
@@ -84,24 +118,47 @@ class TikSaveDownloader:
         self.jobs = JobStore()
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tiksave")
 
-    def inspect(self, url: str) -> dict[str, Any]:
-        url = validate_tiktok_url(url)
-        opts = {
+    @staticmethod
+    def _base_options(user_agent: str) -> dict[str, Any]:
+        return {
             "quiet": True,
             "no_warnings": True,
-            "skip_download": True,
             "noplaylist": True,
+            "http_headers": {
+                "User-Agent": user_agent,
+                "Accept-Language": "es-MX,es;q=0.9,en;q=0.7",
+            },
+            "retries": 2,
         }
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        return {
-            "id": info.get("id"),
-            "title": info.get("title") or info.get("description") or "TikTok",
-            "uploader": info.get("uploader") or info.get("creator"),
-            "thumbnail": info.get("thumbnail"),
-            "duration": info.get("duration"),
-            "webpage_url": info.get("webpage_url") or url,
-        }
+
+    def inspect(self, url: str) -> dict[str, Any]:
+        url = validate_tiktok_url(url)
+        last_error: Exception | None = None
+
+        for user_agent in browser_user_agents():
+            opts = {
+                **self._base_options(user_agent),
+                "skip_download": True,
+            }
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                return {
+                    "id": info.get("id"),
+                    "title": info.get("title") or info.get("description") or "TikTok",
+                    "uploader": info.get("uploader") or info.get("creator"),
+                    "thumbnail": info.get("thumbnail"),
+                    "duration": info.get("duration"),
+                    "webpage_url": info.get("webpage_url") or url,
+                }
+            except Exception as exc:
+                last_error = exc
+                if not is_retryable_tiktok_error(exc):
+                    break
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("TikTok no devolvió información del video.")
 
     def enqueue(self, url: str, mode: str) -> dict[str, Any]:
         url = validate_tiktok_url(url)
@@ -149,26 +206,18 @@ class TikSaveDownloader:
             / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
         )
 
-        common: dict[str, Any] = {
-            "outtmpl": output_template,
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "progress_hooks": [progress_hook],
-            "windowsfilenames": True,
-            "overwrites": False,
-        }
-
         mode = job["mode"]
+        mode_options: dict[str, Any] = {}
+
         if mode == "video":
-            common.update(
+            mode_options.update(
                 {
                     "format": "bestvideo*+bestaudio/best",
                     "merge_output_format": "mp4",
                 }
             )
         elif mode == "mp3":
-            common.update(
+            mode_options.update(
                 {
                     "format": "bestaudio/best",
                     "postprocessors": [
@@ -181,25 +230,64 @@ class TikSaveDownloader:
                 }
             )
         elif mode == "audio":
-            common.update({"format": "bestaudio/best"})
+            mode_options.update({"format": "bestaudio/best"})
         else:
             self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
             return
 
-        try:
-            with yt_dlp.YoutubeDL(common) as ydl:
-                info = ydl.extract_info(job["url"], download=True)
-                final_name = ydl.prepare_filename(info)
-                if mode == "mp3":
-                    final_name = str(Path(final_name).with_suffix(".mp3"))
+        last_error: Exception | None = None
+
+        for attempt, user_agent in enumerate(browser_user_agents(), start=1):
+            common: dict[str, Any] = {
+                **self._base_options(user_agent),
+                **mode_options,
+                "outtmpl": output_template,
+                "progress_hooks": [progress_hook],
+                "windowsfilenames": True,
+                "overwrites": False,
+            }
+
+            try:
                 self.jobs.update(
                     job_id,
-                    status="done",
-                    progress=100.0,
-                    title=self._safe_title(info.get("title") or info.get("description")),
-                    filename=final_name,
+                    status="starting",
+                    progress=0.0,
                     speed=None,
                     eta=None,
+                    error=None,
                 )
-        except Exception as exc:
-            self.jobs.update(job_id, status="error", error=str(exc)[:1000])
+                with yt_dlp.YoutubeDL(common) as ydl:
+                    info = ydl.extract_info(job["url"], download=True)
+                    final_name = ydl.prepare_filename(info)
+                    if mode == "mp3":
+                        final_name = str(Path(final_name).with_suffix(".mp3"))
+                    self.jobs.update(
+                        job_id,
+                        status="done",
+                        progress=100.0,
+                        title=self._safe_title(info.get("title") or info.get("description")),
+                        filename=final_name,
+                        speed=None,
+                        eta=None,
+                    )
+                    return
+            except Exception as exc:
+                last_error = exc
+                if not is_retryable_tiktok_error(exc):
+                    break
+                if attempt < len(browser_user_agents()):
+                    self.jobs.update(
+                        job_id,
+                        status="starting",
+                        progress=0.0,
+                        error=None,
+                    )
+
+        error_text = clean_error(last_error or "Error desconocido")
+        if is_retryable_tiktok_error(error_text):
+            error_text = (
+                "TikTok rechazó temporalmente la petición del extractor incluso después "
+                "de probar varios perfiles de navegador. Vuelve a intentar; si continúa, "
+                "TikTok puede estar aplicando una restricción temporal a esta conexión."
+            )
+        self.jobs.update(job_id, status="error", error=error_text[:1000])
