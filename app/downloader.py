@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import html
 import ipaddress
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -378,6 +381,8 @@ class TikSaveDownloader:
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.jobs = JobStore()
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="tiksave")
+        self._preview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._preview_lock = threading.Lock()
 
     @staticmethod
     def _base_options(user_agent: str, playlist: bool = False) -> dict[str, Any]:
@@ -458,6 +463,149 @@ class TikSaveDownloader:
         if last_error:
             raise last_error
         raise RuntimeError("La plataforma no devolvió información del contenido.")
+
+    def preview_frames(self, url: str, count: int = 8) -> dict[str, Any]:
+        url = validate_supported_url(url)
+        platform = detect_platform(url)
+        if not platform:
+            raise ValueError("Plataforma no compatible.")
+
+        now = time.monotonic()
+        with self._preview_lock:
+            cached = self._preview_cache.get(url)
+            if cached and now - cached[0] < 900:
+                return cached[1]
+
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return {"ok": False, "frames": [], "reason": "ffmpeg_missing"}
+
+        info: dict[str, Any] | None = None
+        last_error: Exception | None = None
+
+        for user_agent, use_firefox_session in self._attempts_for(platform):
+            opts = {
+                **self._base_options(user_agent, playlist=False),
+                "skip_download": True,
+            }
+            if use_firefox_session:
+                opts["cookiesfrombrowser"] = ("firefox",)
+
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    extracted = ydl.extract_info(url, download=False)
+                if isinstance(extracted, dict):
+                    info = extracted
+                    break
+            except Exception as exc:
+                last_error = exc
+
+        if not info:
+            return {
+                "ok": False,
+                "frames": [],
+                "reason": clean_error(last_error or "No se pudo abrir el video para generar fotogramas."),
+            }
+
+        duration = float(info.get("duration") or 0.0)
+        if duration <= 0.5:
+            return {"ok": False, "frames": [], "duration": duration, "reason": "duration_unknown"}
+
+        formats = [
+            item
+            for item in (info.get("formats") or [])
+            if isinstance(item, dict)
+            and str(item.get("url") or "").startswith(("http://", "https://"))
+            and str(item.get("vcodec") or "none") != "none"
+        ]
+
+        def frame_format_score(item: dict[str, Any]) -> tuple[int, int, int]:
+            height = int(item.get("height") or 0)
+            protocol = str(item.get("protocol") or "")
+            direct = 1 if protocol in {"http", "https"} else 0
+            progressive = 1 if str(item.get("acodec") or "none") != "none" else 0
+            target_penalty = abs((height or 360) - 360)
+            if height > 540:
+                target_penalty += 1000
+            return (direct, progressive, -target_penalty)
+
+        formats.sort(key=frame_format_score, reverse=True)
+        selected = formats[0] if formats else info
+        source = str(selected.get("url") or "")
+        if not source.startswith(("http://", "https://")):
+            return {"ok": False, "frames": [], "duration": duration, "reason": "no_direct_preview_source"}
+
+        headers: dict[str, str] = {}
+        for candidate in (info.get("http_headers") or {}, selected.get("http_headers") or {}):
+            if isinstance(candidate, dict):
+                for key, value in candidate.items():
+                    if value and key.lower() in {"user-agent", "referer", "origin"}:
+                        headers[str(key)] = str(value)
+
+        header_blob = "".join(f"{key}: {value}\r\n" for key, value in headers.items())
+        count = max(4, min(int(count or 8), 10))
+        positions = [
+            min(max(duration * (index + 0.5) / count, 0.0), max(0.0, duration - 0.05))
+            for index in range(count)
+        ]
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+        def capture(position: float) -> dict[str, Any] | None:
+            command = [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel", "error",
+                "-ss", f"{position:.3f}",
+            ]
+            if header_blob:
+                command.extend(["-headers", header_blob])
+            command.extend([
+                "-i", source,
+                "-frames:v", "1",
+                "-vf", "scale=220:-2",
+                "-q:v", "6",
+                "-f", "image2pipe",
+                "-vcodec", "mjpeg",
+                "pipe:1",
+            ])
+
+            try:
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=18,
+                    check=False,
+                    creationflags=creationflags,
+                )
+            except Exception:
+                return None
+
+            data = result.stdout or b""
+            if result.returncode != 0 or not data.startswith(b"\xff\xd8"):
+                return None
+
+            return {
+                "time": round(position, 2),
+                "data_url": "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii"),
+            }
+
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="tiksave-preview") as executor:
+            frames = list(executor.map(capture, positions))
+
+        payload = {
+            "ok": bool([frame for frame in frames if frame]),
+            "duration": duration,
+            "frames": [frame for frame in frames if frame],
+        }
+
+        with self._preview_lock:
+            self._preview_cache[url] = (time.monotonic(), payload)
+            if len(self._preview_cache) > 32:
+                oldest = min(self._preview_cache.items(), key=lambda item: item[1][0])[0]
+                self._preview_cache.pop(oldest, None)
+
+        return payload
 
     def enqueue(
         self,

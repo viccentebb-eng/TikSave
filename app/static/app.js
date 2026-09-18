@@ -487,7 +487,7 @@ function renderCapabilities(data) {
   const box = $("capability-buttons");
   const notes = $("analysis-notes");
   const generic = (data.capabilities || []).filter((cap) =>
-    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom"].includes(cap.id)
+    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom", "browser_capture"].includes(cap.id)
   );
 
   const labels = {
@@ -497,6 +497,7 @@ function renderCapabilities(data) {
     image_download: "Descargar imagen",
     image_max: "Original / máxima resolución",
     dezoom: "Reconstruir mosaicos",
+    browser_capture: "Abrir Douyin y capturar desde Firefox",
   };
 
   if (!generic.length && !(data.capabilities || []).length) {
@@ -721,6 +722,16 @@ $("capability-buttons").addEventListener("click", async (event) => {
   }
 
   try {
+    if (action === "browser_capture") {
+      const target = sourceUrl || url;
+      window.open(target, "_blank", "noopener");
+      showMessage(
+        "Abrí Douyin en Firefox. Deja que el video cargue y usa TikSave en esa pestaña; ahora la extensión prioriza la fuente que realmente está reproduciendo el navegador.",
+        "ok",
+      );
+      return;
+    }
+
     if (action === "images") {
       $("page-images-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;

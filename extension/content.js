@@ -108,6 +108,38 @@
     return window.location.href;
   }
 
+  function isDouyin() {
+    return /(^|\.)douyin\.com$|(^|\.)iesdouyin\.com$/i.test(location.hostname);
+  }
+
+  function currentBrowserMedia() {
+    const videos = [...document.querySelectorAll("video")]
+      .map((video) => {
+        const rect = video.getBoundingClientRect();
+        return {
+          video,
+          area: Math.max(0, rect.width) * Math.max(0, rect.height),
+          playing: !video.paused && !video.ended && video.readyState >= 2,
+        };
+      })
+      .sort((a, b) => (Number(b.playing) - Number(a.playing)) || (b.area - a.area));
+
+    const video = videos[0]?.video;
+    const direct = video?.currentSrc || video?.src || "";
+    if (/^https?:\/\//i.test(direct)) {
+      return {
+        source: direct,
+        duration: Number.isFinite(video.duration) ? video.duration : null,
+      };
+    }
+
+    const manifests = performance.getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => /^https?:\/\//i.test(name) && /(?:\.m3u8|\.mpd)(?:[?#]|$)/i.test(name));
+
+    return manifests.length ? { source: manifests[manifests.length - 1], duration: null } : null;
+  }
+
   function isYouTube() {
     return /(^|\.)youtube\.com$|^youtu\.be$/i.test(location.hostname);
   }
@@ -211,16 +243,27 @@
     say("Iniciando…");
 
     try {
-      const job = await send({
-        type: "startDownload",
-        payload: {
-          url: currentUrl(),
-          mode,
-          quality: quality.value,
-          playlist: collection.checked,
-          music_metadata: mode === "mp3" && metadata.checked && isYouTube(),
-        },
-      });
+      const browserMedia = mode === "video" && isDouyin() ? currentBrowserMedia() : null;
+      const job = browserMedia?.source
+        ? await send({
+            type: "startBrowserMedia",
+            payload: {
+              page_url: currentUrl(),
+              media_url: browserMedia.source,
+              mode: "video",
+              quality: quality.value,
+            },
+          })
+        : await send({
+            type: "startDownload",
+            payload: {
+              url: currentUrl(),
+              mode,
+              quality: quality.value,
+              playlist: collection.checked,
+              music_metadata: mode === "mp3" && metadata.checked && isYouTube(),
+            },
+          });
 
       renderJob(job);
       startPolling(job.id);

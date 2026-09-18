@@ -666,6 +666,24 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
                 result["notes"].append(
                     "El extractor directo no pudo analizar este enlace. TikSave mostró lo que pudo detectar desde la página pública."
                 )
+                if platform == "douyin":
+                    result.setdefault("notes", [])
+                    result["notes"].append(
+                        "Douyin no entregó el video al extractor directo. Abre el enlace en Firefox y deja que TikSave capture la fuente que reproduce el navegador."
+                    )
+                    result["kind"] = "browser_required"
+                    result["capabilities"] = [
+                        cap
+                        for cap in (result.get("capabilities") or [])
+                        if cap.get("id") not in {"web_video", "web_audio"}
+                    ]
+                    result["capabilities"].insert(0, {
+                        "id": "browser_capture",
+                        "label": "Abrir Douyin y capturar desde Firefox",
+                        "available": True,
+                        "source_url": final_url,
+                    })
+
                 if platform == "instagram":
                     result["notes"].append(
                         "Si es una Story o contenido que requiere sesión, abre el contenido en Firefox y usa la extensión de TikSave para aprovechar tu sesión ya iniciada."

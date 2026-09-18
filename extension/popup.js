@@ -690,6 +690,16 @@ async function startRegularDownload(mode) {
   say("Iniciando descarga…");
 
   try {
+    if (
+      mode === "video" &&
+      currentPlatform() === "Douyin" &&
+      browserMedia?.found &&
+      !browserMedia.protected &&
+      browserMedia.source
+    ) {
+      await startBrowserMedia();
+      return;
+    }
     if ($("collection").checked && $("clip-enabled").checked) {
       throw new Error("El recorte por tiempo se usa con un solo video, no con una lista o canal.");
     }
@@ -1051,7 +1061,7 @@ async function init() {
     setAppStatus("Abre TikSave en tu computadora", "error");
   }
 
-  if (!supportedUrl(currentUrl) && currentTab?.id) {
+  if (currentTab?.id && (!supportedUrl(currentUrl) || currentPlatform() === "Douyin")) {
     renderBrowserMedia(await detectPlayingMedia(currentTab.id));
   } else {
     $("browser-media").classList.add("hidden");

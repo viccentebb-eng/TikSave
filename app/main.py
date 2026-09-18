@@ -87,6 +87,17 @@ def analyze_content(payload: InspectRequest) -> dict:
         ) from exc
 
 
+@app.post("/api/preview/frames")
+def preview_frames(payload: InspectRequest) -> dict:
+    try:
+        return downloader.preview_frames(str(payload.url))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        write_event("api", "preview-frames", level="warning", message=str(payload.url), exc=exc)
+        return {"ok": False, "frames": [], "reason": clean_error(exc)}
+
+
 @app.post("/api/inspect")
 def inspect_media(payload: InspectRequest) -> dict:
     try:
