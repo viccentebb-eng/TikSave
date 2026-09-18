@@ -3,6 +3,20 @@ const activeJobs = new Map();
 const recentJobs = [];
 const notificationJobs = new Map();
 const streamsByTab = new Map();
+const zoomSourcesByTab = new Map();
+
+function streamScore(url, type) {
+  const lower = String(url || "").toLowerCase();
+  let score = type === "dash" ? 90 : 70;
+
+  if (/(?:master|manifest|playlist)[^/]*\.m3u8/.test(lower)) score += 220;
+  if (/(?:^|[/_.-])index(?:[?._-]|$)/.test(lower)) score += 35;
+  if (/(?:index-v\d+|video|avc|h264|h265|hevc|1080|720|2160|1440)/.test(lower)) score += 110;
+
+  if (/(?:index-a\d+|audio|aac|opus|m4a)(?:[?&/_.-]|$)/.test(lower)) score -= 280;
+
+  return score;
+}
 
 function rememberStream(details) {
   if (details.tabId == null || details.tabId < 0) return;
@@ -10,30 +24,106 @@ function rememberStream(details) {
   const url = String(details.url || "");
   if (!/(?:\.m3u8|\.mpd)(?:[?#]|$)/i.test(url)) return;
 
+  const type = /\.m3u8(?:[?#]|$)/i.test(url) ? "hls" : "dash";
   const current = streamsByTab.get(details.tabId) || [];
+
   const next = [
     {
       url,
       frameId: details.frameId,
-      type: /\.m3u8(?:[?#]|$)/i.test(url) ? "hls" : "dash",
+      type,
+      score: streamScore(url, type),
       timeStamp: details.timeStamp || Date.now(),
     },
     ...current.filter((item) => item.url !== url),
-  ].slice(0, 20);
+  ]
+    .sort((a, b) => (b.score - a.score) || (b.timeStamp - a.timeStamp))
+    .slice(0, 24);
 
   streamsByTab.set(details.tabId, next);
 }
 
+function zoomCandidateFromUrl(rawUrl) {
+  const url = String(rawUrl || "");
+  const clean = url.split("#")[0];
+  const noQuery = clean.split("?")[0];
+
+  if (/\/info\.json$/i.test(noQuery)) {
+    return { url, kind: "IIIF", score: 240 };
+  }
+
+  if (/\.dzi$/i.test(noQuery)) {
+    return { url, kind: "Deep Zoom", score: 235 };
+  }
+
+  if (/\/ImageProperties\.xml$/i.test(noQuery)) {
+    return { url, kind: "Zoomify", score: 235 };
+  }
+
+  if (/\/manifest(?:\.json)?$/i.test(noQuery) && /iiif/i.test(url)) {
+    return { url, kind: "IIIF manifest", score: 210 };
+  }
+
+  const zoomifyTile = noQuery.match(/^(.*)\/TileGroup\d+\/\d+-\d+-\d+\.(?:jpe?g|png|webp)$/i);
+  if (zoomifyTile) {
+    return {
+      url: `${zoomifyTile[1]}/ImageProperties.xml`,
+      kind: "Zoomify",
+      score: 190,
+    };
+  }
+
+  const deepZoomTile = noQuery.match(/^(.*)_files\/\d+\/\d+_\d+\.(?:jpe?g|png|webp)$/i);
+  if (deepZoomTile) {
+    return {
+      url: `${deepZoomTile[1]}.dzi`,
+      kind: "Deep Zoom",
+      score: 185,
+    };
+  }
+
+  if (/\/(?:tour|krpano)[^/]*\.xml$/i.test(noQuery)) {
+    return { url, kind: "Krpano", score: 160 };
+  }
+
+  return null;
+}
+
+function rememberZoomSource(details) {
+  if (details.tabId == null || details.tabId < 0) return;
+
+  const candidate = zoomCandidateFromUrl(details.url);
+  if (!candidate) return;
+
+  const current = zoomSourcesByTab.get(details.tabId) || [];
+  const next = [
+    {
+      ...candidate,
+      frameId: details.frameId,
+      timeStamp: details.timeStamp || Date.now(),
+    },
+    ...current.filter((item) => item.url !== candidate.url),
+  ]
+    .sort((a, b) => (b.score - a.score) || (b.timeStamp - a.timeStamp))
+    .slice(0, 16);
+
+  zoomSourcesByTab.set(details.tabId, next);
+}
+
 browser.webRequest.onBeforeRequest.addListener(
-  rememberStream,
+  (details) => {
+    rememberStream(details);
+    rememberZoomSource(details);
+  },
   {
     urls: ["<all_urls>"],
-    types: ["xmlhttprequest", "media", "other"],
+    types: ["xmlhttprequest", "media", "other", "image", "main_frame", "sub_frame"],
   },
 );
 
 browser.tabs.onRemoved.addListener((tabId) => {
   streamsByTab.delete(tabId);
+  zoomSourcesByTab.delete(tabId);
 });
 
 async function getCleanMode() {
@@ -276,6 +366,18 @@ browser.runtime.onMessage.addListener(async (message) => {
     case "startBrowserMedia":
       return startJob("/api/browser-media", message.payload);
 
+    case "startDezoom":
+      return startJob("/api/dezoom/download", message.payload);
+
+    case "getDezoomStatus":
+      return api("/api/dezoom/status");
+
+    case "installDezoom":
+      return api("/api/dezoom/install", {
+        method: "POST",
+        body: "{}",
+      });
+
     case "getJob":
       return api(`/api/jobs/${message.jobId}`);
 
@@ -287,6 +389,9 @@ browser.runtime.onMessage.addListener(async (message) => {
 
     case "getDetectedStreams":
       return streamsByTab.get(message.tabId) || [];
+
+    case "getDetectedZoomSources":
+      return zoomSourcesByTab.get(message.tabId) || [];
 
     case "getCleanMode":
       return { enabled: await getCleanMode() };
