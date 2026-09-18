@@ -12,18 +12,18 @@
     <section class="hero">
       <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
       <h1>TikSave</h1>
-      <p>Guarda videos o audio de TikTok directamente en tu computadora.</p>
+      <p>Guarda video o audio de TikTok y YouTube directamente en tu computadora.</p>
     </section>
 
     <section class="card">
-      <label for="url">Enlace de TikTok</label>
+      <label for="url">Enlace de TikTok o YouTube</label>
       <div class="url-row">
-        <input id="url" type="url" placeholder="https://www.tiktok.com/@usuario/video/..." autocomplete="off" spellcheck="false">
+        <input id="url" type="url" placeholder="https://www.tiktok.com/... o https://youtu.be/..." autocomplete="off" spellcheck="false">
         <button id="inspect" class="secondary">Vista previa</button>
       </div>
 
       <div id="preview" class="preview hidden">
-        <img id="thumb" alt="Miniatura del TikTok">
+        <img id="thumb" alt="Miniatura del video">
         <div>
           <strong id="title"></strong>
           <span id="uploader"></span>
@@ -48,12 +48,12 @@
       <div id="message" class="message hidden"></div>
 
       <div class="footer-actions">
-        <button id="paste" class="ghost">Pegar desde portapapeles</button>
+        <button id="paste" class="ghost">Pegar enlace</button>
         <button id="open-folder" class="ghost">Abrir carpeta de descargas</button>
       </div>
     </section>
 
-    <p class="legal">Úsalo únicamente con contenido público que tengas derecho a guardar. TikSave no inicia sesión ni evita restricciones privadas.</p>
+    <p class="legal">Úsalo únicamente con contenido público que tengas derecho a guardar. TikSave no inicia sesión ni evita contenido privado, de pago o protegido.</p>
   </main>
   <script src="/static/app.js" defer></script>
 </body>
