@@ -20,20 +20,18 @@
       <p id="url">Leyendo pestaña…</p>
     </section>
 
-    <div class="field-grid">
-      <label class="field">
-        <span>Calidad de video</span>
-        <select id="quality">
-          <option value="best">Mejor disponible</option>
-          <option value="2160">2160p / 4K</option>
-          <option value="1440">1440p</option>
-          <option value="1080">1080p</option>
-          <option value="720">720p</option>
-          <option value="480">480p</option>
-          <option value="360">360p</option>
-        </select>
-      </label>
-    </div>
+    <label class="field block-field">
+      <span>Calidad de video</span>
+      <select id="quality">
+        <option value="best">Mejor disponible</option>
+        <option value="2160">2160p / 4K</option>
+        <option value="1440">1440p</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+        <option value="480">480p</option>
+        <option value="360">360p</option>
+      </select>
+    </label>
 
     <label id="collection-row" class="check-row">
       <input id="collection" type="checkbox">
@@ -51,6 +49,38 @@
       </span>
     </label>
 
+    <label id="clip-row" class="check-row">
+      <input id="clip-enabled" type="checkbox">
+      <span>
+        <strong>Descargar solo un fragmento</strong>
+        <small>Marca el inicio y el final usando el reproductor.</small>
+      </span>
+    </label>
+
+    <section id="clip-panel" class="clip-panel hidden">
+      <div class="clip-time-grid">
+        <label>
+          <span>Inicio</span>
+          <input id="clip-start" type="text" inputmode="numeric" placeholder="00:00">
+        </label>
+        <button id="mark-start" type="button">Usar tiempo actual</button>
+
+        <label>
+          <span>Final</span>
+          <input id="clip-end" type="text" inputmode="numeric" placeholder="00:30">
+        </label>
+        <button id="mark-end" type="button">Usar tiempo actual</button>
+      </div>
+
+      <label class="mini-check">
+        <input id="precise-clip" type="checkbox">
+        <span>
+          <strong>Recorte más exacto</strong>
+          <small>Reencodifica alrededor del corte y puede tardar más.</small>
+        </span>
+      </label>
+    </section>
+
     <div class="buttons">
       <button data-mode="video" class="primary">Video MP4</button>
       <button data-mode="mp3">MP3</button>
@@ -59,10 +89,18 @@
 
     <section id="browser-media" class="media-card hidden">
       <div>
-        <strong>Video reproduciéndose en esta pestaña</strong>
+        <strong>Video detectado en esta pestaña</strong>
         <small id="browser-media-info">Reproductor detectado.</small>
       </div>
       <button id="download-browser-media">Descargar</button>
+    </section>
+
+    <section class="utility-card">
+      <div>
+        <strong>Evitar ventanas emergentes</strong>
+        <small>Bloquea pop-ups programáticos en esta pestaña hasta recargarla.</small>
+      </div>
+      <button id="popup-guard">Activar</button>
     </section>
 
     <section id="progress-card" class="progress-card hidden">
@@ -79,6 +117,11 @@
     </section>
 
     <button id="open" class="more">Más opciones, carruseles y subtítulos</button>
+
+    <div class="diagnostics">
+      <button id="test-notification" type="button">Probar notificación</button>
+    </div>
+
     <div id="message" class="message"></div>
   </main>
   <script src="popup.js"></script>
