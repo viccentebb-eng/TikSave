@@ -8,6 +8,8 @@ let browserMedia = null;
 let popupGuardEnabled = false;
 let cleanModeEnabled = false;
 let detectedImages = [];
+let detectedZoomSources = [];
+let dezoomInstalled = false;
 
 function supportedUrl(url) {
   try {
@@ -181,9 +183,17 @@ async function detectPlayingMedia(tabId) {
           ? currentSrc
           : sourceElement;
 
+        function manifestScore(name) {
+          const lower = String(name || "").toLowerCase();
+          let score = /\.mpd(?:[?#]|$)/i.test(lower) ? 90 : 70;
+          if (/(?:master|manifest|playlist)[^/]*\.m3u8/.test(lower)) score += 220;
+          if (/(?:index-v\d+|video|avc|h264|h265|hevc|1080|720|2160|1440)/.test(lower)) score += 110;
+          if (/(?:index-a\d+|audio|aac|opus|m4a)(?:[?&/_.-]|$)/.test(lower)) score -= 280;
+          return score;
+        }
+
         const manifest =
-          manifests.findLast?.((name) => /\.m3u8(?:[?#]|$)/i.test(name)) ||
-          manifests[manifests.length - 1] ||
+          [...manifests].sort((a, b) => manifestScore(b) - manifestScore(a))[0] ||
           null;
 
         const visibleIframes = [...document.querySelectorAll("iframe[src]")]
@@ -244,16 +254,18 @@ async function detectPlayingMedia(tabId) {
 
     if (networkStreams?.length) {
       const stream = networkStreams[0];
+      const audioOnly = Number(stream.score || 0) < 0;
+
       candidates.push({
         found: true,
         playing: true,
         protected: false,
-        source: stream.url,
-        sourceKind: stream.type,
-        title: document.title || "Stream detectado",
+        source: audioOnly ? null : stream.url,
+        sourceKind: audioOnly ? "audio-hls" : stream.type,
+        title: "Stream detectado",
         duration: null,
         currentTime: null,
-        score: 160000000,
+        score: audioOnly ? 1000 : 170000000 + Number(stream.score || 0) * 1000,
       });
 
       candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -357,19 +369,60 @@ function currentPlatform() {
   return "web";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function renderImages(images) {
   detectedImages = images || [];
   const card = $("image-card");
+  const grid = $("image-grid");
 
   if (!detectedImages.length) {
     card.classList.add("hidden");
+    grid.innerHTML = "";
     return;
   }
 
   card.classList.remove("hidden");
   $("image-title").textContent = `${detectedImages.length} imagen${detectedImages.length === 1 ? "" : "es"} detectada${detectedImages.length === 1 ? "" : "s"}`;
-  $("image-info").textContent =
-    "Puedes guardar las imágenes visibles de esta publicación, carrusel o Story.";
+  $("image-info").textContent = "Todas están seleccionadas. Desmarca las que no quieras.";
+
+  grid.innerHTML = detectedImages.map((item, index) => `
+    <label class="image-choice">
+      <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.alt || `Imagen ${index + 1}`)}">
+      <input type="checkbox" data-image-index="${index}" checked>
+      <span>${index + 1}</span>
+    </label>
+  `).join("");
+}
+
+function selectedImages() {
+  return [...document.querySelectorAll("[data-image-index]:checked")]
+    .map((input) => detectedImages[Number(input.dataset.imageIndex)])
+    .filter(Boolean);
+}
+
+function renderDezoomSources(sources) {
+  detectedZoomSources = sources || [];
+  const card = $("dezoom-card");
+
+  if (!detectedZoomSources.length) {
+    card.classList.add("hidden");
+    return;
+  }
+
+  const source = detectedZoomSources[0];
+  card.classList.remove("hidden");
+  $("dezoom-info").textContent = `${source.kind} detectado. TikSave puede reconstruir la resolución máxima.`;
+  $("dezoom-source").textContent = source.url;
+  $("dezoom-download").disabled = !dezoomInstalled;
+  $("dezoom-install").classList.toggle("hidden", dezoomInstalled);
 }
 
 async function currentPlaybackTime() {
@@ -421,6 +474,13 @@ function renderBrowserMedia(media) {
     return;
   }
 
+  if (media.sourceKind === "audio-hls") {
+    $("browser-media-info").textContent =
+      "Solo detecté una pista HLS de audio. Reproduce unos segundos más y vuelve a abrir TikSave.";
+    $("download-browser-media").disabled = true;
+    return;
+  }
+
   $("download-browser-media").disabled = false;
 
   const kind = {
@@ -429,6 +489,7 @@ function renderBrowserMedia(media) {
     iframe: "reproductor incrustado",
     blob: "video blob; se intentará desde la página",
     http: "fuente directa",
+    "audio-hls": "pista de audio HLS",
   }[media.sourceKind];
 
   const parts = [
@@ -711,9 +772,23 @@ $("test-notification").addEventListener("click", async () => {
   }
 });
 
+$("images-all").addEventListener("click", () => {
+  document.querySelectorAll("[data-image-index]").forEach((input) => {
+    input.checked = true;
+  });
+});
+
+$("images-none").addEventListener("click", () => {
+  document.querySelectorAll("[data-image-index]").forEach((input) => {
+    input.checked = false;
+  });
+});
+
 $("download-images").addEventListener("click", async () => {
-  if (!detectedImages.length) {
-    say("No hay imágenes detectadas para guardar.", "error");
+  const selected = selectedImages();
+
+  if (!selected.length) {
+    say("Selecciona al menos una imagen.", "error");
     return;
   }
 
@@ -721,7 +796,7 @@ $("download-images").addEventListener("click", async () => {
     const result = await send({
       type: "downloadImages",
       payload: {
-        images: detectedImages.map((item) => item.url),
+        images: selected.map((item) => item.url),
         platform: currentPlatform(),
         page_url: currentUrl,
       },
@@ -733,6 +808,55 @@ $("download-images").addEventListener("click", async () => {
     );
   } catch (error) {
     say(error?.message || "No se pudieron descargar las imágenes.", "error");
+  }
+});
+
+$("dezoom-install").addEventListener("click", async () => {
+  $("dezoom-install").disabled = true;
+  $("dezoom-install").textContent = "Instalando…";
+  say("Descargando el motor oficial dezoomify-rs desde GitHub…");
+
+  try {
+    const result = await send({ type: "installDezoom" });
+    dezoomInstalled = Boolean(result?.installed);
+    $("dezoom-install").classList.toggle("hidden", dezoomInstalled);
+    $("dezoom-download").disabled = !dezoomInstalled;
+    say(
+      dezoomInstalled
+        ? `Motor de imágenes instalado${result?.version ? `: ${result.version}` : "."}`
+        : "No se pudo confirmar la instalación.",
+      dezoomInstalled ? "ok" : "error",
+    );
+  } catch (error) {
+    say(error?.message || "No se pudo instalar el motor de imágenes.", "error");
+  } finally {
+    $("dezoom-install").disabled = false;
+    $("dezoom-install").textContent = "Instalar motor de imágenes";
+  }
+});
+
+$("dezoom-download").addEventListener("click", async () => {
+  const source = detectedZoomSources[0];
+  if (!source) {
+    say("No hay un visor de alta resolución detectado.", "error");
+    return;
+  }
+
+  try {
+    const job = await send({
+      type: "startDezoom",
+      payload: {
+        source_url: source.url,
+        page_url: currentUrl,
+        output_format: $("dezoom-format").value,
+      },
+    });
+
+    renderJob(job);
+    startPolling(job.id);
+    say("Reconstrucción de la imagen iniciada.", "ok");
+  } catch (error) {
+    say(error?.message || "No se pudo iniciar la reconstrucción de la imagen.", "error");
   }
 });
 
@@ -770,8 +894,9 @@ async function init() {
   $("reader-mode").textContent = currentTab?.isInReaderMode ? "Salir" : "Abrir";
 
   try {
-    await send({ type: "health" });
+    const health = await send({ type: "health" });
     setAppStatus("TikSave está abierto", "ready");
+    dezoomInstalled = Boolean(health?.dezoomify?.installed);
   } catch {
     setAppStatus("Abre TikSave en tu computadora", "error");
   }
@@ -784,6 +909,7 @@ async function init() {
 
   if (currentTab?.id) {
     const platform = currentPlatform();
+
     if (["Instagram", "TikTok", "Douyin"].includes(platform)) {
       renderImages(await detectPageImages(currentTab.id));
       setTimeout(async () => {
@@ -791,6 +917,16 @@ async function init() {
       }, 1400);
     } else {
       $("image-card").classList.add("hidden");
+    }
+
+    try {
+      const sources = await send({
+        type: "getDetectedZoomSources",
+        tabId: currentTab.id,
+      });
+      renderDezoomSources(sources);
+    } catch {
+      $("dezoom-card").classList.add("hidden");
     }
   }
 
