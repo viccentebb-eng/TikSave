@@ -37,7 +37,7 @@ function say(text, type = "") {
 
 async function ping() {
   const res = await fetch(`${API}/api/health`);
-  if (!res.ok) throw new Error("TikSave Local no está disponible.");
+  if (!res.ok) throw new Error("TikSave no está abierto.");
 }
 
 async function init() {
@@ -59,9 +59,9 @@ async function init() {
     }
 
     await ping();
-    say("TikSave Local está listo.", "ok");
+    say("TikSave está listo.", "ok");
   } catch {
-    say("Abre TikSave Local primero.", "error");
+    say("Abre TikSave en tu computadora primero.", "error");
   }
 }
 
@@ -95,7 +95,7 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 });
 
 document.getElementById("open").addEventListener("click", () => {
-  browser.tabs.create({ url: API });
+  browser.tabs.create({ url: `${API}/?url=${encodeURIComponent(currentUrl)}` });
 });
 
 init();
