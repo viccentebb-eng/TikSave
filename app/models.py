@@ -22,6 +22,9 @@ class DownloadRequest(BaseModel):
     music_metadata: bool = False
     subtitle_format: SubtitleFormat = "srt"
     subtitle_languages: list[str] | None = None
+    clip_start: float | None = None
+    clip_end: float | None = None
+    precise_clip: bool = False
 
 
 class BrowserMediaRequest(BaseModel):
@@ -29,3 +32,6 @@ class BrowserMediaRequest(BaseModel):
     media_url: HttpUrl | None = None
     mode: Literal["video", "mp3", "audio"] = "video"
     quality: VideoQuality = "best"
+    clip_start: float | None = None
+    clip_end: float | None = None
+    precise_clip: bool = False
