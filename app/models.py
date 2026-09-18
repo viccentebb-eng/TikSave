@@ -50,3 +50,8 @@ class MaxUrlResolveRequest(BaseModel):
 class ImageBatchDownloadRequest(BaseModel):
     urls: list[HttpUrl]
     page_url: HttpUrl | None = None
+
+
+class NativeImageRequest(BaseModel):
+    url: HttpUrl
+    page_url: HttpUrl | None = None
