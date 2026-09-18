@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.8.0",
-  "description": "Descarga videos, audio y subtítulos, detecta reproductores y ofrece herramientas de navegación limpia.",
+  "version": "0.9.0",
+  "description": "Descarga videos, imágenes, audio y subtítulos; detecta reproductores y ofrece herramientas de navegación limpia.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -10,7 +10,8 @@
     "tabs",
     "storage",
     "webRequest",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "downloads"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -42,10 +43,30 @@
   },
   "content_scripts": [
     {
+      "matches": ["<all_urls>"],
+      "js": ["guard-main.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["guard-state.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["notify.js"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": [
         "*://*.youtube.com/*",
         "*://youtu.be/*",
         "*://*.tiktok.com/*",
+        "*://*.douyin.com/*",
+        "*://*.iesdouyin.com/*",
         "*://*.instagram.com/*",
         "*://*.facebook.com/*",
         "*://fb.watch/*"
