@@ -31,6 +31,7 @@ function getUrls() {
 function platformLabel(platform) {
   return {
     tiktok: "TikTok",
+    douyin: "Douyin",
     youtube: "YouTube",
     instagram: "Instagram",
     facebook: "Facebook",
