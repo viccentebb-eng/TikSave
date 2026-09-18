@@ -149,7 +149,12 @@ def _pinterest_candidates(url: str) -> list[Candidate]:
     if not host.endswith("pinimg.com"):
         return []
 
-    path = re.sub(r"^/(?:75x75_RS|136x136|236x|474x|564x|736x)/", "/originals/", parsed.path, flags=re.I)
+    path = re.sub(
+        r"^/(?:originals|75x75_RS|\d{2,5}x(?:\d{2,5})?)/",
+        "/originals/",
+        parsed.path,
+        flags=re.I,
+    )
     if path == parsed.path:
         return []
     return [Candidate(urlunparse(parsed._replace(path=path)), "pinterest:originals", 900)]
