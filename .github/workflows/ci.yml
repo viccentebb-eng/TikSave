@@ -9,14 +9,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
       - name: Validate Python
         run: python -m compileall -q app
+
+      - name: Import application
+        run: python -c "import app.main; import app.music"
+
       - name: Validate extension manifest
         run: python -m json.tool extension/manifest.json > /dev/null
+
       - name: Validate web JavaScript
         run: node --check app/static/app.js
+
       - name: Validate extension JavaScript
         run: node --check extension/popup.js
