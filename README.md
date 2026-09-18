@@ -400,13 +400,21 @@ git reset --hard origin/feature/douyin-carousel-googlearts-fixes
 
 Después vuelve a cargar `extension/manifest.json` como complemento temporal desde `about:debugging`.
 
-## Rama experimental 0.15.1
+## Rama experimental 0.15.2
 
 ```text
 feature/queue-trim-dezoom-ux
 ```
 
-Correcciones sobre 0.15.0:
+Correcciones sobre 0.15.1:
+
+- Al terminar una descarga, la app web reproduce un aviso corto, muestra un toast con acceso a la carpeta e intenta mostrar una notificación nativa del navegador cuando el usuario concedió permiso.
+- La extensión conserva sus notificaciones de Firefox y ahora intenta acompañarlas con un aviso sonoro en la pestaña activa. Las imágenes descargadas directamente por Firefox también se rastrean hasta completar o interrumpirse.
+- El visor de alta resolución y el visor flotante permiten recorrer una imagen ampliada simplemente moviendo el mouse. El desplazamiento es suave, admite arrastre con botón izquierdo y la rueda sigue controlando el zoom alrededor del puntero.
+- El visor deja de centrar con flex las imágenes más grandes que la ventana, evitando zonas inaccesibles al hacer zoom.
+- Para mantener el cambio pequeño y seguro no se añadieron dependencias nuevas: se reutilizaron Web Audio, Notifications, Pointer Events y el sistema existente de trabajos/notificaciones.
+
+Correcciones anteriores de 0.15.1:
 
 - Google Arts & Culture: corregido el error de ejecución `name 're' is not defined`.
 - Las URLs `/asset/` de Google Arts se limpian de parámetros de posición/zoom antes de enviarse a dezoomify-rs y se mantiene el dezoomer dedicado `google_arts_and_culture`.

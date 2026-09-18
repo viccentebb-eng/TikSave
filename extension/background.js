@@ -2,6 +2,7 @@ const API = "http://127.0.0.1:8173";
 const activeJobs = new Map();
 const recentJobs = [];
 const notificationJobs = new Map();
+const browserDownloads = new Map();
 const streamsByTab = new Map();
 const zoomSourcesByTab = new Map();
 const contextTargetsByTab = new Map();
@@ -843,11 +844,32 @@ async function downloadImages(payload) {
       conflictAction: "uniquify",
       saveAs: false,
     });
+    browserDownloads.set(id, {
+      title: `Imagen ${index + 1} de ${images.length}`,
+      filename,
+    });
     ids.push(id);
   }
 
   return { count: ids.length, ids };
 }
+
+browser.downloads.onChanged.addListener((change) => {
+  const tracked = browserDownloads.get(change.id);
+  if (!tracked) return;
+
+  const state = change.state?.current;
+  if (state !== "complete" && state !== "interrupted") return;
+  browserDownloads.delete(change.id);
+
+  notifyFinished({
+    id: `browser-${change.id}`,
+    status: state === "complete" ? "done" : "error",
+    title: tracked.title,
+    filename: tracked.filename,
+    error: state === "interrupted" ? "Firefox interrumpió la descarga." : null,
+  }).catch(() => {});
+});
 
 browser.runtime.onMessage.addListener(async (message, sender) => {
   if (message && message.type === "rememberContextTarget" && message.target && sender && sender.tab && sender.tab.id != null) {
@@ -934,14 +956,18 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       if (!message.url) throw new Error("Falta la URL de imagen.");
       return browser.tabs.create({ url: message.url });
 
-    case "downloadDirectImage":
+    case "downloadDirectImage": {
       if (!message.url) throw new Error("Falta la URL de imagen.");
-      return browser.downloads.download({
+      const filename = "TikSave/Originals/" + safeFilenameFromUrl(message.url, "imagen-original.jpg");
+      const id = await browser.downloads.download({
         url: message.url,
-        filename: "TikSave/Originals/" + safeFilenameFromUrl(message.url, "imagen-original.jpg"),
+        filename,
         conflictAction: "uniquify",
         saveAs: false,
       });
+      browserDownloads.set(id, { title: "Imagen original", filename });
+      return id;
+    }
 
     case "getCleanMode":
       return { enabled: await getCleanMode() };

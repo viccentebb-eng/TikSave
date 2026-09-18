@@ -5,10 +5,38 @@
     document.getElementById(ROOT_ID)?.remove();
   }
 
+  function playChime(success) {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      const now = context.currentTime;
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(success ? 0.10 : 0.06, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + (success ? 0.42 : 0.28));
+      gain.connect(context.destination);
+
+      const notes = success ? [659.25, 783.99, 987.77] : [311.13, 246.94];
+      notes.forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, now + index * 0.085);
+        oscillator.connect(gain);
+        oscillator.start(now + index * 0.085);
+        oscillator.stop(now + index * 0.085 + 0.18);
+      });
+      setTimeout(() => context.close().catch(() => {}), 900);
+    } catch {
+      // Firefox can block page audio on sites that have never received interaction.
+    }
+  }
+
   function showToast(job) {
     removeToast();
 
     const success = job?.status === "done";
+    playChime(success);
     const root = document.createElement("div");
     root.id = ROOT_ID;
     root.style.cssText = [

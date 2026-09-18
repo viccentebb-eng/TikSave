@@ -7,7 +7,10 @@ const jobsBox = $("jobs-list");
 const historyPanel = $("history");
 const historyBox = $("history-list");
 const jobPollers = new Map();
+const completionNotified = new Set();
 
+let completionAudio = null;
+let completionToastTimer = null;
 let currentInspection = null;
 let trimDuration = 0;
 let trimFramesLoadedFor = "";
@@ -37,6 +40,127 @@ function showMessage(text, type = "") {
 function clearMessage() {
   message.textContent = "";
   message.className = "message hidden";
+}
+
+function armCompletionFeedback() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass && !completionAudio) {
+      completionAudio = new AudioContextClass();
+    }
+    if (completionAudio?.state === "suspended") {
+      completionAudio.resume().catch(() => {});
+    }
+  } catch {
+    // Sound is optional; downloads continue normally.
+  }
+
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function playCompletionSound(success = true) {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!completionAudio) completionAudio = new AudioContextClass();
+    if (completionAudio.state === "suspended") {
+      completionAudio.resume().catch(() => {});
+    }
+
+    const now = completionAudio.currentTime;
+    const gain = completionAudio.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(success ? 0.11 : 0.07, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (success ? 0.42 : 0.28));
+    gain.connect(completionAudio.destination);
+
+    const notes = success ? [659.25, 783.99, 987.77] : [311.13, 246.94];
+    notes.forEach((frequency, index) => {
+      const oscillator = completionAudio.createOscillator();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + index * 0.085);
+      oscillator.connect(gain);
+      oscillator.start(now + index * 0.085);
+      oscillator.stop(now + index * 0.085 + 0.18);
+    });
+  } catch {
+    // Browsers can block audio when the page never received a user gesture.
+  }
+}
+
+function showCompletionToast(job) {
+  document.querySelector(".completion-toast")?.remove();
+  if (completionToastTimer) clearTimeout(completionToastTimer);
+
+  const success = job.status === "done";
+  const toast = document.createElement("aside");
+  toast.className = `completion-toast ${success ? "success" : "failure"}`;
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <div class="completion-mark">${success ? "✓" : "!"}</div>
+    <div class="completion-copy">
+      <strong>${success ? "Descarga terminada" : "La descarga falló"}</strong>
+      <span>${escapeHtml(job.title || job.error || job.filename || (success ? "El archivo ya está listo." : "Revisa el historial para ver el error."))}</span>
+    </div>
+    <div class="completion-actions">
+      ${success ? `<button class="icon-button" data-toast-folder title="Abrir carpeta de descargas" aria-label="Abrir carpeta de descargas">${folderIcon()}</button>` : ""}
+      <button class="completion-close" data-toast-close aria-label="Cerrar">×</button>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("visible"));
+
+  toast.querySelector("[data-toast-close]")?.addEventListener("click", () => toast.remove());
+  toast.querySelector("[data-toast-folder]")?.addEventListener("click", () => {
+    api("/api/open-folder", { method: "POST" }).catch(() => {});
+  });
+
+  completionToastTimer = setTimeout(() => toast.remove(), 10000);
+}
+
+function showSystemCompletion(job) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  try {
+    const success = job.status === "done";
+    const notification = new Notification(
+      success ? "TikSave · Descarga terminada" : "TikSave · Descarga fallida",
+      {
+        body: String(job.title || job.error || job.filename || (success ? "El archivo ya está listo." : "No se pudo completar la descarga.")).slice(0, 180),
+        tag: `tiksave-${job.id || Date.now()}`,
+      },
+    );
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+    setTimeout(() => notification.close(), 12000);
+  } catch {
+    // In-app toast remains as the reliable fallback.
+  }
+}
+
+function notifyCompletion(job) {
+  const key = String(job.id || `${job.status}-${job.filename || job.title || Date.now()}`);
+  if (completionNotified.has(key)) return;
+  completionNotified.add(key);
+
+  const success = job.status === "done";
+  playCompletionSound(success);
+  showCompletionToast(job);
+  showSystemCompletion(job);
+}
+
+function notifyDirectCompletion(title, filename = "") {
+  notifyCompletion({
+    id: `direct-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    status: "done",
+    title,
+    filename,
+  });
 }
 
 function extractUrls(value) {
@@ -676,6 +800,7 @@ $("select-no-page-images").addEventListener("click", () => {
 });
 
 $("download-page-images").addEventListener("click", async () => {
+  armCompletionFeedback();
   const selected = selectedPageImages();
   if (!selected.length) {
     showMessage("Selecciona al menos una imagen.", "error");
@@ -693,6 +818,10 @@ $("download-page-images").addEventListener("click", async () => {
       }),
     });
     showMessage(`${result.count} imagen${result.count === 1 ? "" : "es"} guardada${result.count === 1 ? "" : "s"} en TikSave/Images.`, "ok");
+    notifyDirectCompletion(
+      `${result.count} imagen${result.count === 1 ? "" : "es"} guardada${result.count === 1 ? "" : "s"}`,
+      result.files?.[0] || "TikSave/Images",
+    );
   } catch (err) {
     showMessage(err.message, "error");
   }
@@ -704,6 +833,7 @@ $("capability-buttons").addEventListener("click", async (event) => {
 
   const action = button.dataset.capAction;
   const sourceUrl = button.dataset.sourceUrl || "";
+  if (!["images", "browser_capture"].includes(action)) armCompletionFeedback();
   let url;
 
   try {
@@ -746,6 +876,7 @@ $("capability-buttons").addEventListener("click", async (event) => {
         }),
       });
       showMessage(`Imagen guardada: ${result.files?.[0] || "TikSave/Images"}`, "ok");
+      notifyDirectCompletion("Imagen guardada", result.files?.[0] || "TikSave/Images");
       return;
     }
 
@@ -776,6 +907,7 @@ $("capability-buttons").addEventListener("click", async (event) => {
         ? ` · ${result.resolution[0]}×${result.resolution[1]}`
         : "";
       showMessage(`Imagen guardada: ${result.path}${resolution}`, "ok");
+      notifyDirectCompletion(`Imagen original guardada${resolution}`, result.path);
       return;
     }
 
@@ -868,6 +1000,7 @@ $("playlist").addEventListener("change", () => {
 });
 
 async function startDownloads(mode) {
+  armCompletionFeedback();
   clearMessage();
 
   let url;
@@ -922,6 +1055,7 @@ document.querySelectorAll("[data-mode]").forEach((button) => {
 });
 
 $("download-subtitles").addEventListener("click", async () => {
+  armCompletionFeedback();
   clearMessage();
 
   let urls;
@@ -1050,9 +1184,9 @@ function createRejectedCard(url, error, position = 1, total = 1) {
 function startPolling(jobId) {
   const previous = jobPollers.get(jobId);
   if (previous) clearInterval(previous);
-  const timer = setInterval(() => updateJob(jobId), 650);
+  const timer = setInterval(() => updateJob(jobId, true), 650);
   jobPollers.set(jobId, timer);
-  updateJob(jobId);
+  updateJob(jobId, true);
 }
 
 function moveJobToHistory(card) {
@@ -1061,7 +1195,7 @@ function moveJobToHistory(card) {
   updateJobsCount();
 }
 
-async function updateJob(jobId) {
+async function updateJob(jobId, shouldNotify = true) {
   const card = document.getElementById(`job-${jobId}`);
   if (!card) return;
 
@@ -1131,6 +1265,9 @@ async function updateJob(jobId) {
       if (data.status === "error") card.classList.add("failed");
       if (data.status === "cancelled") card.classList.add("cancelled");
       moveJobToHistory(card);
+      if (shouldNotify && (data.status === "done" || data.status === "error")) {
+        notifyCompletion(data);
+      }
     }
 
     updateJobsCount();
@@ -1184,7 +1321,7 @@ async function restoreJobs() {
     const jobs = result.jobs || [];
     for (const job of jobs.reverse()) {
       createJobCard(job.id, job.url || "Trabajo", 1, 1);
-      await updateJob(job.id);
+      await updateJob(job.id, false);
       if (!["done", "error", "cancelled"].includes(job.status)) startPolling(job.id);
     }
   } catch {
