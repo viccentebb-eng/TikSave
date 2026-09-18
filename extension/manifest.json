@@ -1,14 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "TikSave Local",
-  "version": "0.4.0",
-  "description": "Envía videos públicos de TikTok, YouTube, Instagram o Facebook a TikSave Local.",
+  "name": "TikSave",
+  "version": "0.5.0",
+  "description": "Descarga videos, audio y subtítulos desde TikTok, YouTube, Instagram y Facebook con TikSave.",
   "permissions": ["activeTab"],
   "host_permissions": ["http://127.0.0.1:8173/*"],
   "action": {
-    "default_title": "TikSave Local",
+    "default_title": "TikSave",
     "default_popup": "popup.html"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://youtu.be/*",
+        "*://*.tiktok.com/*",
+        "*://*.instagram.com/*",
+        "*://*.facebook.com/*",
+        "*://fb.watch/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "tiksave-local@local",
