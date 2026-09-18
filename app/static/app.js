@@ -32,14 +32,22 @@ function clearMessage() {
   message.className = "message hidden";
 }
 
-function getUrls() {
-  const urls = urlsInput.value
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
+function extractUrls(value) {
+  const matches = String(value || "").match(
+    /https?:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+/gi,
+  ) || [];
 
-  if (!urls.length) throw new Error("Pega al menos un enlace.");
-  return [...new Set(urls)];
+  return [...new Set(
+    matches
+      .map((item) => item.replace(/[.,;:!?\)\]\}>，。；：！？）》】」』]+$/g, ""))
+      .filter(Boolean),
+  )];
+}
+
+function getUrls() {
+  const urls = extractUrls(urlsInput.value);
+  if (!urls.length) throw new Error("Pega al menos un enlace o un texto que contenga una URL.");
+  return urls;
 }
 
 function platformLabel(platform) {
@@ -71,6 +79,32 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function readableError(value, fallback = "Error desconocido") {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => readableError(item, "")).filter(Boolean);
+    return parts.join("; ") || fallback;
+  }
+  if (typeof value === "object") {
+    if (typeof value.msg === "string") {
+      const where = Array.isArray(value.loc)
+        ? value.loc.filter((part) => part !== "body").join(".")
+        : "";
+      return where ? `${where}: ${value.msg}` : value.msg;
+    }
+    for (const key of ["detail", "error", "message", "reason"]) {
+      if (value[key] != null) return readableError(value[key], fallback);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return String(value);
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -78,7 +112,10 @@ async function api(path, options = {}) {
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+  if (!res.ok) {
+    const raw = data.detail ?? data.error ?? data.message ?? `Error ${res.status}`;
+    throw new Error(readableError(raw, `Error ${res.status}`));
+  }
   return data;
 }
 

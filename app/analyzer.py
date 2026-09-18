@@ -13,8 +13,10 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from app.dezoom import status as dezoom_status
+from app.diagnostics import write_event
 from app.downloader import TikSaveDownloader, detect_platform
 from app.native_image import status as native_image_status
+from app.url_utils import canonicalize_http_url, follow_known_short_url
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
@@ -36,7 +38,7 @@ ZOOM_PATTERNS = (
 
 
 def _public_http_url(value: str) -> str:
-    value = value.strip()
+    value = canonicalize_http_url(value)
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
 
@@ -564,11 +566,29 @@ def _platform_result(
 
 
 def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> dict[str, Any]:
-    url = _public_http_url(url)
+    input_url = _public_http_url(url)
+    url, redirects = follow_known_short_url(input_url)
+
+    if url != input_url:
+        _safe_remote_host(url)
+
+    write_event(
+        "analyzer",
+        "url-normalized",
+        message=url,
+        details={
+            "original_url": input_url,
+            "normalized_url": url,
+            "redirects": redirects,
+        },
+    )
 
     cached = _cache_get(url, playlist)
     if cached is not None:
         cached["cached"] = True
+        cached.setdefault("input_url", input_url)
+        cached.setdefault("normalized_url", url)
+        cached.setdefault("redirects", redirects)
         return cached
 
     platform = detect_platform(url)
@@ -576,6 +596,9 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
     if platform:
         try:
             result = _platform_result(url, platform, downloader, playlist)
+            result["input_url"] = input_url
+            result["normalized_url"] = url
+            result["redirects"] = redirects
             result["cached"] = False
             return _cache_put(url, playlist, result)
         except Exception as extractor_error:
@@ -586,6 +609,9 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
                 final_url, content_type, body, charset = _request_page(url)
                 result = _classify_generic(url, final_url, content_type, body, charset)
                 result["platform"] = platform
+                result["input_url"] = input_url
+                result["normalized_url"] = final_url
+                result["redirects"] = redirects + ([url, final_url] if final_url != url else [])
                 result["extractor_error"] = str(extractor_error)
                 result.setdefault("notes", [])
                 result["notes"].append(
@@ -640,5 +666,8 @@ def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> 
 
     final_url, content_type, body, charset = _request_page(url)
     result = _classify_generic(url, final_url, content_type, body, charset)
+    result["input_url"] = input_url
+    result["normalized_url"] = final_url
+    result["redirects"] = redirects + ([url, final_url] if final_url != url else [])
     result["cached"] = False
     return _cache_put(url, playlist, result)

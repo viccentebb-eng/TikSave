@@ -18,6 +18,7 @@ from yt_dlp.utils import download_range_func
 
 from app.dezoom import run as run_dezoom
 from app.music import apply_music_metadata
+from app.url_utils import canonicalize_http_url, follow_known_short_url
 
 
 TIKTOK_HOSTS = {
@@ -65,17 +66,19 @@ def detect_platform(value: str) -> str | None:
 
 
 def validate_supported_url(value: str) -> str:
-    value = value.strip()
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("El enlace debe comenzar con http:// o https://")
+    value = canonicalize_http_url(value)
     if not detect_platform(value):
         raise ValueError("Solo se admiten enlaces de TikTok, Douyin, YouTube, Instagram o Facebook.")
+
+    resolved, _redirects = follow_known_short_url(value)
+    if resolved != value and detect_platform(resolved):
+        value = resolved
+
     return value
 
 
 def validate_public_web_url(value: str) -> str:
-    value = value.strip()
+    value = canonicalize_http_url(value)
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
 

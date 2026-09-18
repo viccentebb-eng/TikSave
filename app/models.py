@@ -9,12 +9,14 @@ SubtitleFormat = Literal["srt", "vtt", "txt", "ass"]
 
 
 class InspectRequest(BaseModel):
-    url: HttpUrl
+    # Keep this as text so shared-app payloads (Douyin/TikTok captions + URL)
+    # reach TikSave's URL extractor instead of failing Pydantic validation first.
+    url: str
     playlist: bool = False
 
 
 class DownloadRequest(BaseModel):
-    url: HttpUrl
+    url: str
     mode: DownloadMode = "video"
     quality: VideoQuality = "best"
     playlist: bool = False

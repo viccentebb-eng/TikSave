@@ -166,6 +166,32 @@ async function setPopupGuard(enabled) {
   }
 })();
 
+function readableError(value, fallback = "Error desconocido") {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => readableError(item, "")).filter(Boolean);
+    return parts.join("; ") || fallback;
+  }
+  if (typeof value === "object") {
+    if (typeof value.msg === "string") {
+      const where = Array.isArray(value.loc)
+        ? value.loc.filter((part) => part !== "body").join(".")
+        : "";
+      return where ? `${where}: ${value.msg}` : value.msg;
+    }
+    for (const key of ["detail", "error", "message", "reason"]) {
+      if (value[key] != null) return readableError(value[key], fallback);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return String(value);
+}
+
 async function api(path, options = {}) {
   const response = await fetch(`${API}${path}`, {
     ...options,
@@ -177,7 +203,10 @@ async function api(path, options = {}) {
   });
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || `Error ${response.status}`);
+  if (!response.ok) {
+    const raw = data.detail ?? data.error ?? data.message ?? `Error ${response.status}`;
+    throw new Error(readableError(raw, `Error ${response.status}`));
+  }
   return data;
 }
 
