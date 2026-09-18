@@ -45,3 +45,8 @@ class DezoomRequest(BaseModel):
 
 class MaxUrlResolveRequest(BaseModel):
     url: HttpUrl
+
+
+class ImageBatchDownloadRequest(BaseModel):
+    urls: list[HttpUrl]
+    page_url: HttpUrl | None = None
