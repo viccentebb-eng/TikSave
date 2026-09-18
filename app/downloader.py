@@ -465,6 +465,13 @@ class TikSaveDownloader:
         page_url = validate_public_web_url(page_url)
         source_url = validate_public_web_url(media_url) if media_url else page_url
 
+        if media_url and mode == "video":
+            lower_source = source_url.lower()
+            if re.search(r"(?:index-a\d+|audio|aac|opus|m4a)(?:[?&/_.-]|$)", lower_source):
+                raise ValueError(
+                    "La fuente detectada parece ser solo audio HLS. Reproduce el video unos segundos más y vuelve a abrir TikSave."
+                )
+
         if mode not in {"video", "mp3", "audio"}:
             raise ValueError("Modo de descarga multimedia inválido.")
 
@@ -885,7 +892,7 @@ class TikSaveDownloader:
                 and str(job["referer"]) != str(job["url"])
             )
             mode_options.update({
-                "format": "best" if direct_browser_media else video_format(job["quality"]),
+                "format": "bv*+ba/b" if direct_browser_media else video_format(job["quality"]),
                 "merge_output_format": "mp4",
             })
         elif mode == "mp3":
