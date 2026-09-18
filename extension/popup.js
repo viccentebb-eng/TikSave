@@ -750,6 +750,15 @@ $("reader-mode").addEventListener("click", async () => {
   }
 });
 
+$("open-diagnostics-log").addEventListener("click", async () => {
+  try {
+    const result = await send({ type: "openDiagnosticsLog" });
+    say(`Log abierto: ${result?.path || "TikSave/logs/tiksave.log"}`, "ok");
+  } catch (error) {
+    say(error?.message || "No se pudo abrir el log de diagnóstico.", "error");
+  }
+});
+
 $("test-notification").addEventListener("click", async () => {
   try {
     const result = await send({ type: "testNotification" });
