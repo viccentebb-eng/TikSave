@@ -631,6 +631,14 @@ $("capability-buttons").addEventListener("click", async (event) => {
     return;
   }
 
+  const wantsViewer = action === "dezoom" || action === "image_max";
+  const viewerWindow = wantsViewer ? window.open("about:blank", "_blank") : null;
+  if (viewerWindow) {
+    viewerWindow.document.title = "TikSave · Preparando visor";
+    viewerWindow.document.body.style.cssText = "margin:0;background:#090b0e;color:#fff;font:14px system-ui;display:grid;place-items:center;height:100vh";
+    viewerWindow.document.body.textContent = "TikSave está preparando la máxima resolución…";
+  }
+
   try {
     if (action === "images") {
       $("page-images-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -650,7 +658,21 @@ $("capability-buttons").addEventListener("click", async (event) => {
     }
 
     if (action === "image_max" && button.dataset.strategy !== "dezoom") {
-      showMessage("TikSave está probando variantes de mayor resolución…");
+      showMessage("TikSave está buscando la variante original…");
+
+      const resolved = await api("/api/image/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          url: sourceUrl || currentInspection.images?.[0]?.url || url,
+          page_url: url,
+        }),
+      });
+
+      const bestUrl = resolved.best?.final_url || resolved.best?.url;
+      if (viewerWindow && bestUrl) {
+        viewerWindow.location.replace(bestUrl);
+      }
+
       const result = await api("/api/image/download", {
         method: "POST",
         body: JSON.stringify({
@@ -684,10 +706,16 @@ $("capability-buttons").addEventListener("click", async (event) => {
       jobsPanel.classList.remove("hidden");
       createJobCard(data.id, url, 1, 1);
       startPolling(data.id);
-      window.open(`/viewer/${encodeURIComponent(data.id)}`, "_blank", "noopener");
-      showMessage("Reconstrucción iniciada. Abrí un visor que mostrará la imagen cuando esté lista.", "ok");
+
+      const viewerUrl = `/viewer/${encodeURIComponent(data.id)}`;
+      if (viewerWindow) viewerWindow.location.replace(viewerUrl);
+      else window.open(viewerUrl, "_blank", "noopener");
+
+      showMessage("Reconstrucción iniciada. El visor mostrará el avance y cargará la imagen al terminar.", "ok");
       return;
     }
+
+    if (viewerWindow) viewerWindow.close();
 
     if (action === "web_video" || action === "web_audio") {
       const clip = action === "web_video" ? clipPayload() : {};
@@ -708,6 +736,7 @@ $("capability-buttons").addEventListener("click", async (event) => {
       showMessage("Descarga añadida a trabajos.", "ok");
     }
   } catch (err) {
+    if (viewerWindow && !viewerWindow.closed) viewerWindow.close();
     showMessage(err.message, "error");
   }
 });
@@ -865,6 +894,15 @@ function updateJobsCount() {
 
 function createJobCard(jobId, url, position = 1, total = 1) {
   if (document.getElementById(`job-${jobId}`)) return;
+
+  const composer = document.querySelector(".composer");
+  const analysisQueue = $("analysis-queue");
+  const anchor = analysisQueue && !analysisQueue.classList.contains("hidden")
+    ? analysisQueue
+    : composer;
+  if (anchor && anchor.nextElementSibling !== jobsPanel) {
+    anchor.insertAdjacentElement("afterend", jobsPanel);
+  }
 
   const card = document.createElement("article");
   card.className = "job-card";
