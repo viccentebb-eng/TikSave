@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import subprocess
 import threading
 import webbrowser
@@ -60,6 +61,10 @@ def health() -> dict:
         "subtitle_formats": ["srt", "vtt", "txt", "ass"],
         "dezoomify": dezoom_status(),
         "native_image": native_image_status(),
+        "ffmpeg": {
+            "installed": bool(shutil.which("ffmpeg")),
+            "path": shutil.which("ffmpeg"),
+        },
     }
 
 
@@ -72,8 +77,10 @@ def analyze_content(payload: InspectRequest) -> dict:
             playlist=payload.playlist,
         )
     except ValueError as exc:
+        write_event("api", "analyze", level="warning", message=str(payload.url), exc=exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        write_event("api", "analyze", level="error", message=str(payload.url), exc=exc)
         raise HTTPException(
             status_code=502,
             detail=f"No se pudo analizar el contenido: {clean_error(exc)}",
