@@ -50,7 +50,7 @@ def health() -> dict:
         "name": "TikSave Local",
         "version": __version__,
         "download_dir": str(downloader.download_dir),
-        "platforms": ["tiktok", "youtube", "instagram", "facebook"],
+        "platforms": ["tiktok", "douyin", "youtube", "instagram", "facebook"],
         "qualities": ["best", "2160", "1440", "1080", "720", "480", "360"],
         "subtitle_formats": ["srt", "vtt", "txt", "ass"],
     }
