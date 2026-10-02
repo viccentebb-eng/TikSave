@@ -18,6 +18,7 @@ from app import __version__
 from app.analyzer import analyze as analyze_url
 from app.diagnostics import log_path as diagnostics_log_path, snapshot as diagnostics_snapshot, write_event
 from app.dezoom import install as install_dezoomify, status as dezoom_status
+from app.chat_export import save_chat_markdown
 from app.native_image import download as download_native_image, resolve as resolve_native_image, status as native_image_status
 from app.image_tools import download_images as download_image_batch
 from app.downloader import (
@@ -25,7 +26,7 @@ from app.downloader import (
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, DezoomRequest, DiagnosticEventRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest, NativeImageRequest
+from app.models import BrowserMediaRequest, ChatExportRequest, DezoomRequest, DiagnosticEventRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest, NativeImageRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -66,6 +67,71 @@ def health() -> dict:
             "path": shutil.which("ffmpeg"),
         },
     }
+
+
+@app.post("/api/chat/export")
+def export_ai_chat(payload: ChatExportRequest) -> dict:
+    try:
+        result = save_chat_markdown(
+            downloader.download_dir,
+            platform=payload.platform,
+            title=payload.title,
+            source_url=str(payload.source_url),
+            markdown=payload.markdown,
+            message_count=payload.message_count,
+        )
+        write_event(
+            "chat-export",
+            "saved",
+            message=result["path"],
+            details={
+                "platform": payload.platform,
+                "source_url": str(payload.source_url),
+                "message_count": payload.message_count,
+            },
+        )
+        return result
+    except ValueError as exc:
+        write_event(
+            "chat-export",
+            "rejected",
+            level="warning",
+            message=str(payload.source_url),
+            exc=exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        write_event(
+            "chat-export",
+            "failed",
+            level="error",
+            message=str(payload.source_url),
+            exc=exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo guardar la conversación: {clean_error(exc)}",
+        ) from exc
+
+
+@app.post("/api/chat/open-folder")
+def open_chat_folder() -> dict:
+    folder = downloader.download_dir / "Chats"
+    folder.mkdir(parents=True, exist_ok=True)
+    system = platform.system()
+    try:
+        if system == "Windows":
+            os.startfile(folder)
+        elif system == "Darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo abrir la carpeta de chats: {exc}",
+        ) from exc
+    return {"ok": True, "path": str(folder)}
 
 
 @app.post("/api/analyze")
