@@ -10,6 +10,7 @@ let cleanModeEnabled = false;
 let detectedImages = [];
 let detectedZoomSources = [];
 let dezoomInstalled = false;
+let aiChatInfo = null;
 
 function supportedUrl(url) {
   try {
@@ -66,6 +67,17 @@ function isTikTokProfile(url) {
   } catch {
     return false;
   }
+}
+
+function aiChatPlatform(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "chatgpt.com" || host.endsWith(".chatgpt.com") || host === "chat.openai.com") {
+      return "ChatGPT";
+    }
+    if (host === "gemini.google.com") return "Gemini";
+  } catch {}
+  return null;
 }
 
 function setAppStatus(text, type = "") {
@@ -491,16 +503,22 @@ function configureContext() {
   const youtube = isYouTube(currentUrl);
   const channel = isYouTubeChannel(currentUrl);
   const tiktokProfile = isTikTokProfile(currentUrl);
+  const chatPlatform = aiChatPlatform(currentUrl);
+  const aiChat = Boolean(chatPlatform);
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.disabled = !supported;
   });
 
-  $("metadata-row").classList.toggle("hidden", !youtube);
-  $("collection-row").classList.toggle("hidden", !supported);
-  $("clip-row").classList.toggle("hidden", tiktokProfile);
+  $("quality-row").classList.toggle("hidden", aiChat);
+  $("media-buttons").classList.toggle("hidden", aiChat);
+  $("metadata-row").classList.toggle("hidden", !youtube || aiChat);
+  $("collection-row").classList.toggle("hidden", !supported || aiChat);
+  $("clip-row").classList.toggle("hidden", tiktokProfile || aiChat);
 
-  if (tiktokProfile) {
+  if (aiChat) {
+    $("source-title").textContent = chatPlatform + " · conversación";
+  } else if (tiktokProfile) {
     $("collection").checked = true;
     $("collection").disabled = true;
     $("collection-title").textContent = "Descargar perfil completo";
@@ -524,7 +542,7 @@ function configureContext() {
     $("source-title").textContent = supported ? "Contenido compatible" : "Pestaña actual";
   }
 
-  if (!tiktokProfile) {
+  if (!tiktokProfile && !aiChat) {
     document.querySelector('[data-mode="video"]').textContent = "Video MP4";
     document.querySelector('[data-mode="mp3"]').textContent = "MP3";
     document.querySelector('[data-mode="audio"]').textContent = "Solo audio";
@@ -824,6 +842,53 @@ $("reader-mode").addEventListener("click", async () => {
   }
 });
 
+$("save-ai-chat").addEventListener("click", async () => {
+  if (!currentTab?.id) return;
+
+  $("save-ai-chat").disabled = true;
+  $("save-ai-chat").textContent = "Guardando…";
+  say("Leyendo la conversación abierta…");
+
+  try {
+    const extracted = await browser.tabs.sendMessage(currentTab.id, {
+      type: "exportAiChatMarkdown",
+    });
+
+    if (!extracted?.ok) {
+      throw new Error(extracted?.error || "No pude leer esta conversación.");
+    }
+
+    const result = await send({
+      type: "saveAiChat",
+      payload: {
+        platform: extracted.platform,
+        title: extracted.title,
+        source_url: extracted.source_url,
+        markdown: extracted.markdown,
+        message_count: extracted.message_count,
+      },
+    });
+
+    aiChatInfo = extracted;
+    $("ai-chat-info").textContent =
+      `${extracted.platform_label} · ${extracted.message_count} mensajes · Markdown`;
+    say(`Chat guardado: ${result?.filename || "TikSave/Chats"}`, "ok");
+  } catch (error) {
+    say(error?.message || "No se pudo guardar la conversación.", "error");
+  } finally {
+    $("save-ai-chat").disabled = false;
+    $("save-ai-chat").textContent = "Guardar Markdown";
+  }
+});
+
+$("open-chat-folder").addEventListener("click", async () => {
+  try {
+    await send({ type: "openChatFolder" });
+  } catch (error) {
+    say(error?.message || "No se pudo abrir la carpeta de chats.", "error");
+  }
+});
+
 $("open-diagnostics-log").addEventListener("click", async () => {
   try {
     const result = await send({ type: "openDiagnosticsLog" });
@@ -984,10 +1049,38 @@ async function init() {
     setAppStatus("Abre TikSave en tu computadora", "error");
   }
 
-  if (!supportedUrl(currentUrl) && currentTab?.id) {
+  if (!supportedUrl(currentUrl) && !aiChatPlatform(currentUrl) && currentTab?.id) {
     renderBrowserMedia(await detectPlayingMedia(currentTab.id));
   } else {
     $("browser-media").classList.add("hidden");
+  }
+
+  if (currentTab?.id && aiChatPlatform(currentUrl)) {
+    try {
+      const info = await browser.tabs.sendMessage(currentTab.id, {
+        type: "inspectAiChat",
+      });
+
+      if (info?.ok) {
+        aiChatInfo = info;
+        $("ai-chat-title").textContent = info.title || "Conversación IA";
+        $("ai-chat-info").textContent =
+          `${info.platform_label} · ${info.message_count} mensajes cargados`;
+        $("ai-chat-card").classList.remove("hidden");
+      } else {
+        $("ai-chat-card").classList.remove("hidden");
+        $("ai-chat-info").textContent =
+          info?.error || "No pude leer los mensajes de esta conversación.";
+        $("save-ai-chat").disabled = true;
+      }
+    } catch (error) {
+      $("ai-chat-card").classList.remove("hidden");
+      $("ai-chat-info").textContent =
+        "Recarga esta pestaña para activar el exportador de chats.";
+      $("save-ai-chat").disabled = true;
+    }
+  } else {
+    $("ai-chat-card").classList.add("hidden");
   }
 
   if (currentTab?.id) {
