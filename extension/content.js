@@ -120,16 +120,40 @@
     );
   }
 
+  function isTikTokProfile() {
+    return (
+      /(^|\.)tiktok\.com$/i.test(location.hostname) &&
+      /^\/@[^/]+\/?$/.test(location.pathname)
+    );
+  }
+
   function updateContext() {
     metadataRow.hidden = !isYouTube();
+    const tiktokProfile = isTikTokProfile();
 
-    if (isYouTubeChannel()) {
+    if (tiktokProfile) {
+      collection.checked = true;
+      collection.disabled = true;
+      collectionTitle.textContent = "Descargar perfil completo";
+      collectionHelp.textContent = "Incluye todos los videos públicos disponibles.";
+      root.querySelector('[data-tiksave-mode="video"]').textContent = "Todos los videos";
+      root.querySelector('[data-tiksave-mode="mp3"]').textContent = "MP3 del perfil";
+      root.querySelector('[data-tiksave-mode="audio"]').textContent = "Audio del perfil";
+    } else if (isYouTubeChannel()) {
+      collection.disabled = false;
       collection.checked = true;
       collectionTitle.textContent = "Descargar canal completo";
       collectionHelp.textContent = "Incluye los videos disponibles de este canal.";
     } else {
+      collection.disabled = false;
       collectionTitle.textContent = "Descargar lista completa";
       collectionHelp.textContent = "Úsalo para playlists o colecciones.";
+    }
+
+    if (!tiktokProfile) {
+      root.querySelector('[data-tiksave-mode="video"]').textContent = "Video MP4";
+      root.querySelector('[data-tiksave-mode="mp3"]').textContent = "MP3";
+      root.querySelector('[data-tiksave-mode="audio"]').textContent = "Solo audio";
     }
   }
 
@@ -217,7 +241,7 @@
           url: currentUrl(),
           mode,
           quality: quality.value,
-          playlist: collection.checked,
+          playlist: collection.checked || isTikTokProfile(),
           music_metadata: mode === "mp3" && metadata.checked && isYouTube(),
         },
       });
