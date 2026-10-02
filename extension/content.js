@@ -146,6 +146,7 @@
       collectionHelp.textContent = "Incluye los videos disponibles de este canal.";
     } else {
       collection.disabled = false;
+      collection.checked = false;
       collectionTitle.textContent = "Descargar lista completa";
       collectionHelp.textContent = "Úsalo para playlists o colecciones.";
     }
