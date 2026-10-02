@@ -219,6 +219,26 @@ async function logExtensionError(action, error, details = {}) {
   }
 }
 
+async function saveAiChat(payload) {
+  const result = await api("/api/chat/export", {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+  });
+
+  try {
+    await createNotification(`tiksave-chat-${Date.now()}`, {
+      type: "basic",
+      iconUrl: browser.runtime.getURL("icons/tiksave.svg"),
+      title: "TikSave · Chat guardado",
+      message: shortText(result?.filename || "La conversación se guardó en Markdown."),
+    });
+  } catch {
+    // Saving the chat is more important than the optional notification.
+  }
+
+  return result;
+}
+
 async function ensureDezoomEngine() {
   let state = await api("/api/dezoom/status");
   if (!state || !state.installed) {
@@ -470,6 +490,19 @@ function createContextMenus() {
       });
 
       browser.contextMenus.create({
+        id: "tiksave-save-chat",
+        parentId: "tiksave-root",
+        title: "Guardar conversación IA en Markdown",
+        contexts: ["page"],
+        documentUrlPatterns: [
+          "*://chatgpt.com/*",
+          "*://*.chatgpt.com/*",
+          "*://chat.openai.com/*",
+          "*://gemini.google.com/*",
+        ],
+      });
+
+      browser.contextMenus.create({
         id: "tiksave-open-app",
         parentId: "tiksave-root",
         title: "Abrir esta página en TikSave",
@@ -537,6 +570,34 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (info.menuItemId === "tiksave-download-video") {
       await startContextVideo(tab);
+      return;
+    }
+
+    if (info.menuItemId === "tiksave-save-chat") {
+      if (!tab?.id) throw new Error("No pude identificar la pestaña del chat.");
+
+      const extracted = await browser.tabs.sendMessage(tab.id, {
+        type: "exportAiChatMarkdown",
+      });
+
+      if (!extracted?.ok) {
+        throw new Error(extracted?.error || "No pude leer la conversación abierta.");
+      }
+
+      const result = await saveAiChat({
+        platform: extracted.platform,
+        title: extracted.title,
+        source_url: extracted.source_url,
+        markdown: extracted.markdown,
+        message_count: extracted.message_count,
+      });
+
+      await sendToastToActiveTab({
+        status: "done",
+        title: "Conversación guardada",
+        filename: result?.filename || "TikSave/Chats",
+      });
+      await showFinishedBadge(true);
       return;
     }
 
@@ -805,6 +866,15 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
 
     case "downloadMaxUrl":
       return downloadResolvedImage(message.url, message.pageUrl || null);
+
+    case "saveAiChat":
+      return saveAiChat(message.payload || {});
+
+    case "openChatFolder":
+      return api("/api/chat/open-folder", {
+        method: "POST",
+        body: "{}",
+      });
 
     case "openDiagnosticsLog":
       return api("/api/diagnostics/open-log", {
