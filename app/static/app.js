@@ -632,6 +632,10 @@ async function startDownloads(mode) {
           playlist,
           selected_items: urls.length === 1 ? selectedItems : null,
           music_metadata: musicMetadata,
+          expected_items:
+            playlist && currentInspection?.entry_count
+              ? currentInspection.entry_count
+              : null,
         }),
       });
 
@@ -710,6 +714,10 @@ $("download-subtitles").addEventListener("click", async () => {
         selected_items: selectedItems,
         subtitle_format: $("subtitle-format").value,
         subtitle_languages: languages,
+        expected_items:
+          currentInspection?.collection_type === "tiktok_profile"
+            ? currentInspection.entry_count || null
+            : null,
       }),
     });
 
@@ -729,7 +737,7 @@ function createJobCard(jobId, url, position, total) {
   card.innerHTML = `
     <div class="job-head">
       <div class="job-title">
-        <strong>${position}/${total} · ${escapeHtml(shortUrl(url))}</strong>
+        <strong>${total > 1 ? `${position}/${total} · ` : ""}${escapeHtml(shortUrl(url))}</strong>
         <span data-role="status">En cola…</span>
       </div>
       <span data-role="percent">0%</span>
@@ -777,7 +785,12 @@ async function updateJob(jobId) {
     const pct = Number(data.progress || 0);
 
     barEl.style.width = `${pct}%`;
-    percentEl.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+
+    if (data.playlist && data.total_items && !data.current_index && pct === 0) {
+      percentEl.textContent = `0/${data.total_items}`;
+    } else {
+      percentEl.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+    }
 
     const labels = {
       queued: "En cola…",
@@ -791,6 +804,8 @@ async function updateJob(jobId) {
     let status = labels[data.status] || data.status;
     if (data.total_items && data.current_index) {
       status += ` · ${data.current_index}/${data.total_items}`;
+    } else if (data.playlist && data.total_items) {
+      status += ` · 0/${data.total_items}`;
     }
 
     statusEl.textContent = status;
