@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 DownloadMode = Literal["video", "mp3", "audio", "subtitles"]
@@ -63,3 +63,11 @@ class DiagnosticEventRequest(BaseModel):
     level: Literal["info", "warning", "error"] = "info"
     message: str = ""
     details: dict | None = None
+
+
+class ChatExportRequest(BaseModel):
+    platform: Literal["chatgpt", "gemini"]
+    title: str = Field(default="Chat", max_length=300)
+    source_url: HttpUrl
+    markdown: str = Field(min_length=1, max_length=8_000_000)
+    message_count: int | None = Field(default=None, ge=0, le=100_000)
