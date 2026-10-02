@@ -64,3 +64,6 @@ jobs:
 
       - name: Validate setup helper
         run: python -m app.setup_engines verify
+
+      - name: Validate collection URL detection
+        run: python -c "from app.downloader import detect_collection_type; assert detect_collection_type('https://www.tiktok.com/@revolutia.ai') == 'tiktok_profile'; assert detect_collection_type('https://www.tiktok.com/@revolutia.ai/video/123') is None; assert detect_collection_type('https://www.youtube.com/@OpenAI/videos') == 'youtube_channel'"
