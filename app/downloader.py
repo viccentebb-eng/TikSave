@@ -445,6 +445,7 @@ class TikSaveDownloader:
         music_metadata: bool = False,
         subtitle_format: str = "srt",
         subtitle_languages: list[str] | None = None,
+        expected_items: int | None = None,
         clip_start: float | None = None,
         clip_end: float | None = None,
         precise_clip: bool = False,
@@ -475,6 +476,7 @@ class TikSaveDownloader:
             music_metadata=bool(music_metadata),
             subtitle_format=subtitle_format,
             subtitle_languages=subtitle_languages,
+            total_items=int(expected_items) if expected_items else None,
             clip_start=clip_start,
             clip_end=clip_end,
             precise_clip=bool(precise_clip),
@@ -686,6 +688,60 @@ class TikSaveDownloader:
         all_files: list[Path] = []
         failures: list[str] = []
         last_info: dict[str, Any] | None = None
+        collection_type = detect_collection_type(str(job["url"]))
+        expected_items = int(job.get("total_items") or 0) or None
+
+        def subtitle_progress_hook(data: dict[str, Any]) -> None:
+            info = data.get("info_dict") or {}
+            item_index = info.get("playlist_index")
+            item_count = info.get("playlist_count") or info.get("n_entries") or expected_items
+            item_title = info.get("title")
+
+            try:
+                item_index = int(item_index) if item_index is not None else None
+            except (TypeError, ValueError):
+                item_index = None
+            try:
+                item_count = int(item_count) if item_count is not None else expected_items
+            except (TypeError, ValueError):
+                item_count = expected_items
+
+            if not item_index:
+                return
+
+            total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+            downloaded = data.get("downloaded_bytes") or 0
+            item_pct = (downloaded / total * 100.0) if total else 0.0
+
+            if item_count:
+                pct = ((item_index - 1) + item_pct / 100.0) / item_count * 100.0
+            else:
+                pct = 0.0
+
+            self.jobs.update(
+                job_id,
+                status="processing",
+                progress=round(min(max(pct, 0.0), 99.5), 1),
+                title=self._safe_title(item_title) or "Subtítulos del perfil",
+                current_index=item_index,
+                total_items=item_count,
+                metadata_note=(
+                    f"Buscando subtítulos en video {item_index}/{item_count}"
+                    if item_count
+                    else f"Buscando subtítulos en video {item_index}"
+                ),
+            )
+
+        if collection_type == "tiktok_profile" and expected_items:
+            self.jobs.update(
+                job_id,
+                status="processing",
+                progress=0.0,
+                title="Subtítulos del perfil",
+                current_index=0,
+                total_items=expected_items,
+                metadata_note=f"Buscando subtítulos en {expected_items} videos públicos…",
+            )
 
         for language_index, language in enumerate(languages, start=1):
             language_files: list[Path] = []
@@ -708,9 +764,10 @@ class TikSaveDownloader:
                     "overwrites": False,
                     "sleep_interval_subtitles": 1.0,
                     "sleep_interval_requests": 0.75,
+                    "progress_hooks": [subtitle_progress_hook],
                 }
 
-                if detect_collection_type(str(job["url"])) == "tiktok_profile":
+                if collection_type == "tiktok_profile":
                     options["extractor_retries"] = 10
 
                 if job.get("selected_items"):
@@ -726,14 +783,15 @@ class TikSaveDownloader:
                     }]
 
                 try:
-                    self.jobs.update(
-                        job_id,
-                        status="processing",
-                        progress=round((language_index - 1) / len(languages) * 100.0, 1),
-                        title=f"Subtítulos: {language}",
-                        current_index=language_index,
-                        total_items=len(languages),
-                    )
+                    if collection_type != "tiktok_profile":
+                        self.jobs.update(
+                            job_id,
+                            status="processing",
+                            progress=round((language_index - 1) / len(languages) * 100.0, 1),
+                            title=f"Subtítulos: {language}",
+                            current_index=language_index,
+                            total_items=len(languages),
+                        )
 
                     with yt_dlp.YoutubeDL(options) as ydl:
                         info = ydl.extract_info(job["url"], download=True)
@@ -768,10 +826,11 @@ class TikSaveDownloader:
                     f"{language}: {clean_error(language_error or 'sin archivo')}"
                 )
 
-            self.jobs.update(
-                job_id,
-                progress=round(language_index / len(languages) * 100.0, 1),
-            )
+            if collection_type != "tiktok_profile":
+                self.jobs.update(
+                    job_id,
+                    progress=round(language_index / len(languages) * 100.0, 1),
+                )
 
         unique_files: list[Path] = []
         seen: set[str] = set()
