@@ -332,3 +332,11 @@ button.primary { background:#f4f5f7; border-color:#f4f5f7; color:#111318; }
   font-size:10px;
 }
 .dezoom-actions button { padding:8px 9px; }
+
+.chat-actions {
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:7px;
+  margin-top:10px;
+}
+.chat-actions button { min-height:36px; }
