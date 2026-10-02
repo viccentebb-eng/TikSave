@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.13.2",
-  "description": "TikSave local: perfiles TikTok, video, audio, subtítulos, imágenes originales y herramientas de Firefox.",
+  "version": "0.14.0",
+  "description": "TikSave local: video, audio, subtítulos, imágenes, chats IA en Markdown y herramientas de Firefox.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -123,6 +123,19 @@
       ],
       "js": [
         "social-images.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "*://chatgpt.com/*",
+        "*://*.chatgpt.com/*",
+        "*://chat.openai.com/*",
+        "*://gemini.google.com/*"
+      ],
+      "js": [
+        "chat-export.js"
       ],
       "run_at": "document_idle",
       "all_frames": false
