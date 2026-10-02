@@ -472,6 +472,14 @@ Después recarga el complemento temporal desde `about:debugging` y **recarga tam
 - La extensión intenta inyectar automáticamente el exportador si la pestaña estaba abierta antes de recargar TikSave; ya no depende obligatoriamente de pulsar F5.
 - El botón de exportar permanece disponible aunque el conteo rápido no encuentre mensajes; el escaneo completo se realiza al guardar.
 
+### Parche 0.14.2
+
+- Corrige el progreso de subtítulos al procesar perfiles completos de TikTok.
+- La app ya no muestra `1/1` como si el perfil fuera un solo elemento.
+- La interfaz envía el total conocido del perfil al backend; por ejemplo, `371 videos`.
+- Mientras yt-dlp recorre el perfil, TikSave actualiza `video actual / total` y el porcentaje cuando recibe eventos de descarga de subtítulos.
+- Antes de recibir el primer evento, muestra `0/371` y un mensaje de búsqueda en lugar de un `0%` ambiguo.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
