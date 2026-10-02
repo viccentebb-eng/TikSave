@@ -870,6 +870,18 @@ $("open-folder").addEventListener("click", async () => {
   }
 });
 
+$("open-chats").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/chat/open-folder", {
+      method: "POST",
+      body: "{}",
+    });
+    showMessage(`Carpeta de chats abierta: ${result.path}`, "ok");
+  } catch (err) {
+    showMessage(err.message || "No se pudo abrir la carpeta de chats.", "error");
+  }
+});
+
 $("open-log").addEventListener("click", async () => {
   try {
     const result = await api("/api/diagnostics/open-log", { method: "POST", body: "{}" });
