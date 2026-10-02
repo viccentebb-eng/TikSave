@@ -463,6 +463,15 @@ git pull
 
 Después recarga el complemento temporal desde `about:debugging` y **recarga también la pestaña de ChatGPT o Gemini** para que Firefox inyecte el nuevo exportador.
 
+### Parche 0.14.1
+
+- Corrige la detección de conversaciones en las interfaces actuales de ChatGPT y Gemini.
+- ChatGPT añade compatibilidad con `[data-turn]`, `group/turn-messages` y `.user-message-bubble-color`, además de los selectores anteriores.
+- Gemini añade `user-query-content`, `message-content`, `.markdown-main-panel`, `#chat-history` y `[data-test-id="chat-history-container"]`.
+- **Guardar Markdown** hace un escaneo profundo y recorre el contenedor del chat para recoger mensajes virtualizados o cargados al desplazarse.
+- La extensión intenta inyectar automáticamente el exportador si la pestaña estaba abierta antes de recargar TikSave; ya no depende obligatoriamente de pulsar F5.
+- El botón de exportar permanece disponible aunque el conteo rápido no encuentre mensajes; el escaneo completo se realiza al guardar.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
