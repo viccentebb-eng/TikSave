@@ -20,7 +20,7 @@
       <p id="url">Leyendo pestaña…</p>
     </section>
 
-    <label class="field block-field">
+    <label id="quality-row" class="field block-field">
       <span>Calidad de video</span>
       <select id="quality">
         <option value="best">Mejor disponible</option>
@@ -81,7 +81,7 @@
       </label>
     </section>
 
-    <div class="buttons">
+    <div id="media-buttons" class="buttons">
       <button data-mode="video" class="primary">Video MP4</button>
       <button data-mode="mp3">MP3</button>
       <button data-mode="audio">Solo audio</button>
@@ -127,6 +127,19 @@
         <button id="dezoom-download" type="button">Reconstruir máxima resolución</button>
       </div>
       <button id="dezoom-install" class="wide-action secondary-action hidden" type="button">Instalar motor de imágenes</button>
+    </section>
+
+    <section id="ai-chat-card" class="picker-card hidden">
+      <div class="picker-head">
+        <div>
+          <strong id="ai-chat-title">Conversación IA</strong>
+          <small id="ai-chat-info">Chat detectado.</small>
+        </div>
+      </div>
+      <div class="chat-actions">
+        <button id="save-ai-chat" class="primary" type="button">Guardar Markdown</button>
+        <button id="open-chat-folder" type="button">Abrir carpeta</button>
+      </div>
     </section>
 
     <section class="utility-card">
