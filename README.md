@@ -399,6 +399,70 @@ git pull
 
 Después recarga TikSave desde `about:debugging` y prueba con un perfil TikTok público.
 
+
+## Rama experimental 0.14.0 — exportar chats IA
+
+```text
+feature/ai-chat-markdown-export
+```
+
+TikSave puede guardar conversaciones abiertas de **ChatGPT** y **Gemini** como archivos Markdown locales.
+
+### Firefox
+
+En una conversación compatible aparece una tarjeta **Conversación IA** con:
+
+- título detectado;
+- cantidad de mensajes cargados en la pestaña;
+- **Guardar Markdown**;
+- **Abrir carpeta**.
+
+También se añade:
+
+```text
+clic derecho
+→ TikSave
+→ Guardar conversación IA en Markdown
+```
+
+TikSave lee únicamente el contenido ya disponible en la pestaña abierta. No extrae cookies, tokens, contraseñas ni credenciales y no usa APIs privadas de las plataformas.
+
+El exportador intenta conservar:
+
+- turnos de usuario y asistente;
+- encabezados;
+- listas;
+- negritas y cursivas;
+- enlaces;
+- imágenes como referencias Markdown;
+- bloques de código;
+- citas;
+- tablas.
+
+Los archivos se guardan en:
+
+```text
+Descargas/TikSave/Chats/ChatGPT
+Descargas/TikSave/Chats/Gemini
+```
+
+La aplicación local recibe el Markdown desde la extensión y lo guarda con metadatos básicos: título, plataforma, URL de origen, fecha de exportación y número de mensajes.
+
+Como las interfaces web de ChatGPT y Gemini cambian con frecuencia, el extractor usa varios selectores semánticos y fallbacks. Si una plataforma cambia su DOM y TikSave deja de detectar mensajes, se debe actualizar `extension/chat-export.js`.
+
+Para probar:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/ai-chat-markdown-export
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Después recarga el complemento temporal desde `about:debugging` y **recarga también la pestaña de ChatGPT o Gemini** para que Firefox inyecte el nuevo exportador.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
