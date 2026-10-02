@@ -368,6 +368,37 @@ Omitir motores externos:
 - Instagram, TikTok y Douyin incorporan un escáner de imágenes/carruseles. En Instagram intenta recorrer automáticamente el carrusel y regresar al elemento inicial para descubrir imágenes sin que tengas que previsualizarlas manualmente.
 - Si Instagram solo entrega al backend su pantalla de login/interfaz, la app ya no muestra logos y gráficos de Instagram como si fueran fotos del post; indica usar la extensión con la sesión abierta.
 
+
+#### Parche 0.13.2
+
+- Los enlaces de perfil de TikTok, por ejemplo `https://www.tiktok.com/@revolutia.ai`, se reconocen como colecciones.
+- Al pegar un perfil, TikSave activa **Descargar perfil completo** y el botón principal pasa a **Descargar todos los videos**.
+- El backend fuerza modo colección para perfiles TikTok aunque el cliente no marque manualmente la opción.
+- En perfiles TikTok aparece una opción especial **Todos los subtítulos disponibles**. Usa `all` de yt-dlp para solicitar subtítulos manuales y automáticos disponibles en cada video, respetando el formato SRT/VTT/TXT/ASS elegido.
+- Para perfiles no se limita la descarga a las 100 entradas mostradas en la vista previa: la selección visual queda desactivada para evitar descargar accidentalmente solo una parte del perfil.
+- El popup y el asistente flotante de Firefox también reconocen perfiles TikTok y cambian a modo perfil completo.
+- El recorte por tiempo se oculta en perfiles porque un recorte individual no aplica a una colección completa.
+- TikSave sigue dependiendo de lo que TikTok permita enumerar públicamente; perfiles privados o bloqueados pueden requerir acceso que TikSave no intenta eludir.
+
+Rama:
+
+```text
+feature/tiktok-profile-bulk
+```
+
+Para probar:
+
+```powershell
+cd D:\PROYECTOS\TikSave
+git fetch origin
+git switch feature/tiktok-profile-bulk
+git pull
+.\scripts\install-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+Después recarga TikSave desde `about:debugging` y prueba con un perfil TikTok público.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
