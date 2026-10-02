@@ -96,6 +96,7 @@ function resetInspection() {
   $("media-actions").classList.add("hidden");
   $("page-images-panel").classList.add("hidden");
   $("page-images-grid").innerHTML = "";
+  $("playlist").disabled = false;
 }
 
 async function inspectFirst({ silent = false } = {}) {
@@ -210,6 +211,9 @@ function renderInspection(data) {
     playlistTitle.textContent = "Descargar perfil completo";
     playlistHelp.textContent = "Incluye todos los videos públicos que TikTok permita enumerar.";
   } else {
+    if (data.platform !== "youtube" && !ids.has("playlist")) {
+      playlistInput.checked = false;
+    }
     playlistTitle.textContent = "Descargar lista o canal completo";
     playlistHelp.textContent = "Playlists, colecciones y canales compatibles.";
   }
