@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.14.0",
-  "description": "TikSave local: video, audio, subtítulos, imágenes, chats IA en Markdown y herramientas de Firefox.",
+  "version": "0.14.1",
+  "description": "TikSave local: video, audio, imágenes y exportación Markdown de chats ChatGPT/Gemini.",
   "permissions": [
     "activeTab",
     "scripting",
