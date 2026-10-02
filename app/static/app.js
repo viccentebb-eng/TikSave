@@ -152,12 +152,12 @@ function renderInspection(data) {
 
   $("playlist-info").textContent = data.is_playlist
     ? isTikTokProfile
-      ? \`Perfil de TikTok · \${data.entry_count ?? "varios"} videos\`
-      : \`Colección · \${data.entry_count ?? "varios"} elementos\`
+      ? `Perfil de TikTok · ${data.entry_count ?? "varios"} videos`
+      : `Colección · ${data.entry_count ?? "varios"} elementos`
     : data.kind && data.kind !== "media"
       ? data.kind === "artwork"
         ? "Obra / imagen ampliable"
-        : \`Contenido: \${data.kind}\`
+        : `Contenido: ${data.kind}`
       : "";
 
   if (data.thumbnail) {
@@ -376,21 +376,21 @@ function renderSubtitleTracks(tracks, data = null) {
     return;
   }
 
-  box.innerHTML = visibleTracks.map((track, index) => \`
-    <label class="subtitle-track" data-subtitle-filter="\${escapeHtml(
-      \`\${track.code} \${track.name} \${track.bulk ? "todos perfil" : track.automatic ? "automatico auto" : "manual"}\`.toLowerCase()
+  box.innerHTML = visibleTracks.map((track, index) => `
+    <label class="subtitle-track" data-subtitle-filter="${escapeHtml(
+      `${track.code} ${track.name} ${track.bulk ? "todos perfil" : track.automatic ? "automatico auto" : "manual"}`.toLowerCase()
     )}">
-      <input type="checkbox" data-subtitle-code="\${escapeHtml(track.code)}" \${index === 0 ? "checked" : ""}>
+      <input type="checkbox" data-subtitle-code="${escapeHtml(track.code)}" ${index === 0 ? "checked" : ""}>
       <span>
-        <strong>\${escapeHtml(track.name || track.code)}</strong>
-        <small>\${
+        <strong>${escapeHtml(track.name || track.code)}</strong>
+        <small>${
           track.bulk
             ? "todos los videos del perfil · manuales y automáticos cuando existan"
-            : \`\${escapeHtml(track.code)} · \${track.automatic ? "generado automáticamente" : "incluido por el autor"}\${track.formats?.length ? \` · \${escapeHtml(track.formats.join(", "))}\` : ""}\`
+            : `${escapeHtml(track.code)} · ${track.automatic ? "generado automáticamente" : "incluido por el autor"}${track.formats?.length ? ` · ${escapeHtml(track.formats.join(", "))}` : ""}`
         }</small>
       </span>
     </label>
-  \`).join("");
+  `).join("");
 
   panel.classList.remove("hidden");
 }
