@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from app.dezoom import status as dezoom_status
-from app.downloader import TikSaveDownloader, detect_platform
+from app.downloader import TikSaveDownloader, detect_collection_type, detect_platform
 from app.native_image import status as native_image_status
 
 
@@ -527,9 +527,11 @@ def _platform_result(
     downloader: TikSaveDownloader,
     playlist: bool,
 ) -> dict[str, Any]:
-    info = downloader.inspect(url, playlist=playlist)
+    collection_type = detect_collection_type(url)
+    info = downloader.inspect(url, playlist=bool(playlist or collection_type))
     info["host"] = urlparse(url).hostname
     info["kind"] = "media"
+    info["collection_type"] = info.get("collection_type") or collection_type
     info["engine"] = {
         "native_image": native_image_status(),
         "dezoomify": dezoom_status(),
@@ -547,11 +549,24 @@ def _platform_result(
             "available": True,
         })
     if info.get("is_playlist"):
+        collection_label = "Lista / colección"
+        if info.get("collection_type") == "tiktok_profile":
+            collection_label = "Perfil completo de TikTok"
+        elif info.get("collection_type") == "youtube_channel":
+            collection_label = "Canal completo de YouTube"
+
         capabilities.append({
             "id": "playlist",
-            "label": f"Lista / colección ({info.get('entry_count') or 'varios'})",
+            "label": f"{collection_label} ({info.get('entry_count') or 'varios'})",
             "available": True,
         })
+
+        if info.get("collection_type") == "tiktok_profile":
+            capabilities.append({
+                "id": "collection_subtitles",
+                "label": "Todos los subtítulos disponibles",
+                "available": True,
+            })
     if info.get("entries") and len(info["entries"]) > 1:
         capabilities.append({
             "id": "selection",
