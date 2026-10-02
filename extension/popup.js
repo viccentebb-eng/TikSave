@@ -57,6 +57,17 @@ function isYouTubeChannel(url) {
   }
 }
 
+function isTikTokProfile(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const tiktok = host === "tiktok.com" || host.endsWith(".tiktok.com");
+    return tiktok && /^\/@[^/]+\/?$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function setAppStatus(text, type = "") {
   const node = $("app-status");
   node.className = type;
@@ -479,6 +490,7 @@ function configureContext() {
   const supported = supportedUrl(currentUrl);
   const youtube = isYouTube(currentUrl);
   const channel = isYouTubeChannel(currentUrl);
+  const tiktokProfile = isTikTokProfile(currentUrl);
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.disabled = !supported;
@@ -486,20 +498,38 @@ function configureContext() {
 
   $("metadata-row").classList.toggle("hidden", !youtube);
   $("collection-row").classList.toggle("hidden", !supported);
+  $("clip-row").classList.toggle("hidden", tiktokProfile);
 
-  if (channel) {
+  if (tiktokProfile) {
+    $("collection").checked = true;
+    $("collection").disabled = true;
+    $("collection-title").textContent = "Descargar perfil completo";
+    $("collection-help").textContent =
+      "Descarga todos los videos públicos disponibles de este perfil.";
+    $("source-title").textContent = "Perfil de TikTok";
+    document.querySelector('[data-mode="video"]').textContent = "Todos los videos";
+    document.querySelector('[data-mode="mp3"]').textContent = "MP3 del perfil";
+    document.querySelector('[data-mode="audio"]').textContent = "Audio del perfil";
+  } else if (channel) {
+    $("collection").disabled = false;
     $("collection").checked = true;
     $("collection-title").textContent = "Descargar canal completo";
     $("collection-help").textContent =
       "Incluye los videos disponibles del canal o de esta pestaña del canal.";
     $("source-title").textContent = "Canal de YouTube";
   } else {
+    $("collection").disabled = false;
     $("collection-title").textContent = "Descargar lista completa";
     $("collection-help").textContent = "Úsalo para playlists o colecciones.";
     $("source-title").textContent = supported ? "Contenido compatible" : "Pestaña actual";
   }
-}
 
+  if (!tiktokProfile) {
+    document.querySelector('[data-mode="video"]').textContent = "Video MP4";
+    document.querySelector('[data-mode="mp3"]').textContent = "MP3";
+    document.querySelector('[data-mode="audio"]').textContent = "Solo audio";
+  }
+}
 function renderBrowserMedia(media) {
   browserMedia = media;
   const card = $("browser-media");
@@ -630,7 +660,7 @@ async function startRegularDownload(mode) {
         url: currentUrl,
         mode,
         quality: $("quality").value,
-        playlist: $("collection").checked,
+        playlist: $("collection").checked || isTikTokProfile(currentUrl),
         music_metadata:
           mode === "mp3" &&
           !$("metadata-row").classList.contains("hidden") &&
