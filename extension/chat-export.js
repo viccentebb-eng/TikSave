@@ -542,25 +542,25 @@
     const store = new Map();
     addVisibleMessages(platform, store);
 
+    if (deep) {
+      const harvested = await harvestConversation(platform);
+      return buildResult(platform, harvested);
+    }
+
     if (store.size) {
       return buildResult(platform, [...store.values()]);
     }
 
-    if (!deep) {
-      const diag = diagnostics(platform);
-      return {
-        platform,
-        platform_label: platformLabel(platform),
-        title: cleanTitle(document.title, platform),
-        source_url: location.href,
-        message_count: 0,
-        markdown: "",
-        diagnostics: diag,
-      };
-    }
-
-    const harvested = await harvestConversation(platform);
-    return buildResult(platform, harvested);
+    const diag = diagnostics(platform);
+    return {
+      platform,
+      platform_label: platformLabel(platform),
+      title: cleanTitle(document.title, platform),
+      source_url: location.href,
+      message_count: 0,
+      markdown: "",
+      diagnostics: diag,
+    };
   }
 
   browser.runtime.onMessage.addListener((message) => {
