@@ -179,6 +179,7 @@ def start_download(payload: DownloadRequest) -> dict:
             music_metadata=payload.music_metadata,
             subtitle_format=payload.subtitle_format,
             subtitle_languages=payload.subtitle_languages,
+            expected_items=payload.expected_items,
             clip_start=payload.clip_start,
             clip_end=payload.clip_end,
             precise_clip=payload.precise_clip,
