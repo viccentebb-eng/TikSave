@@ -64,6 +64,27 @@ def detect_platform(value: str) -> str | None:
     return None
 
 
+def detect_collection_type(value: str) -> str | None:
+    parsed = urlparse(value.strip())
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or "/"
+
+    if (host in TIKTOK_HOSTS or host.endswith(".tiktok.com")) and re.fullmatch(r"/@[^/]+/?", path):
+        return "tiktok_profile"
+
+    if host in YOUTUBE_HOSTS or host.endswith(".youtube.com"):
+        if re.fullmatch(r"/@[^/]+(?:/(?:videos|shorts|streams|releases))?/?", path):
+            return "youtube_channel"
+        if re.fullmatch(r"/(?:channel|c|user)/[^/]+(?:/(?:videos|shorts|streams|releases))?/?", path):
+            return "youtube_channel"
+
+    return None
+
+
+def is_collection_url(value: str) -> bool:
+    return detect_collection_type(value) is not None
+
+
 def validate_supported_url(value: str) -> str:
     value = value.strip()
     parsed = urlparse(value)
@@ -361,6 +382,8 @@ class TikSaveDownloader:
     def inspect(self, url: str, playlist: bool = False) -> dict[str, Any]:
         url = validate_supported_url(url)
         platform = detect_platform(url)
+        collection_type = detect_collection_type(url)
+        effective_playlist = bool(playlist or collection_type)
         if not platform:
             raise ValueError("Plataforma no compatible.")
 
@@ -368,9 +391,11 @@ class TikSaveDownloader:
 
         for user_agent in self._agents_for(platform):
             opts = {
-                **self._base_options(user_agent, playlist=playlist),
+                **self._base_options(user_agent, playlist=effective_playlist),
                 "skip_download": True,
             }
+            if collection_type:
+                opts["extract_flat"] = "in_playlist"
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -390,7 +415,8 @@ class TikSaveDownloader:
                     "thumbnail": info.get("thumbnail") or (entries and _entry_thumbnail(entries[0])),
                     "duration": info.get("duration"),
                     "webpage_url": info.get("webpage_url") or url,
-                    "is_playlist": bool(entries),
+                    "is_playlist": bool(entries) or bool(collection_type),
+                    "collection_type": collection_type,
                     "entry_count": len(entries) if entries else None,
                     "entries": [
                         _entry_summary(entry, index)
@@ -426,10 +452,12 @@ class TikSaveDownloader:
         if not platform:
             raise ValueError("Plataforma no compatible.")
 
+        collection_type = detect_collection_type(url)
         selected = sorted({int(item) for item in selected_items or [] if int(item) > 0}) or None
+        effective_playlist = bool(playlist or selected or collection_type)
         clip_start, clip_end = validate_clip_range(clip_start, clip_end)
 
-        if (playlist or selected) and (clip_start is not None or clip_end is not None):
+        if effective_playlist and (clip_start is not None or clip_end is not None):
             raise ValueError("El recorte por tiempo se usa con un solo video, no con listas o canales.")
 
         if mode == "subtitles" and not subtitle_languages:
@@ -440,7 +468,7 @@ class TikSaveDownloader:
             mode=mode,
             platform=platform,
             quality=quality,
-            playlist=playlist or bool(selected),
+            playlist=effective_playlist,
             selected_items=selected,
             music_metadata=bool(music_metadata),
             subtitle_format=subtitle_format,
