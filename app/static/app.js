@@ -142,6 +142,7 @@ function capabilityIds(data) {
 
 function renderInspection(data) {
   const ids = capabilityIds(data);
+  const isTikTokProfile = data.collection_type === "tiktok_profile";
 
   $("title").textContent = data.title || "Contenido";
   $("uploader").textContent = [
@@ -150,11 +151,13 @@ function renderInspection(data) {
   ].filter(Boolean).join(" · ");
 
   $("playlist-info").textContent = data.is_playlist
-    ? `Colección · ${data.entry_count ?? "varios"} elementos`
+    ? isTikTokProfile
+      ? \`Perfil de TikTok · \${data.entry_count ?? "varios"} videos\`
+      : \`Colección · \${data.entry_count ?? "varios"} elementos\`
     : data.kind && data.kind !== "media"
       ? data.kind === "artwork"
         ? "Obra / imagen ampliable"
-        : `Contenido: ${data.kind}`
+        : \`Contenido: \${data.kind}\`
       : "";
 
   if (data.thumbnail) {
@@ -170,9 +173,23 @@ function renderInspection(data) {
   const hasNativeMedia = ["video", "mp3", "audio"].some((id) => ids.has(id));
   $("media-actions").classList.toggle("hidden", !hasNativeMedia);
 
-  document.querySelector('[data-mode="video"]').classList.toggle("hidden", !ids.has("video"));
-  document.querySelector('[data-mode="mp3"]').classList.toggle("hidden", !ids.has("mp3"));
-  document.querySelector('[data-mode="audio"]').classList.toggle("hidden", !ids.has("audio"));
+  const videoButton = document.querySelector('[data-mode="video"]');
+  const mp3Button = document.querySelector('[data-mode="mp3"]');
+  const audioButton = document.querySelector('[data-mode="audio"]');
+
+  videoButton.classList.toggle("hidden", !ids.has("video"));
+  mp3Button.classList.toggle("hidden", !ids.has("mp3"));
+  audioButton.classList.toggle("hidden", !ids.has("audio"));
+
+  if (isTikTokProfile) {
+    videoButton.textContent = "Descargar todos los videos";
+    mp3Button.textContent = "MP3 de todo el perfil";
+    audioButton.textContent = "Audio de todo el perfil";
+  } else {
+    videoButton.textContent = "Descargar MP4";
+    mp3Button.textContent = "Descargar MP3";
+    audioButton.textContent = "Solo audio";
+  }
 
   $("quality-control").classList.toggle(
     "hidden",
@@ -180,21 +197,36 @@ function renderInspection(data) {
   );
 
   const showPlaylist = data.platform === "youtube" || ids.has("playlist");
-  $("playlist-control").classList.toggle("hidden", !showPlaylist);
+  const playlistControl = $("playlist-control");
+  const playlistInput = $("playlist");
+  const playlistTitle = playlistControl.querySelector("strong");
+  const playlistHelp = playlistControl.querySelector("small");
+
+  playlistControl.classList.toggle("hidden", !showPlaylist);
+  playlistInput.disabled = isTikTokProfile;
+
+  if (isTikTokProfile) {
+    playlistInput.checked = true;
+    playlistTitle.textContent = "Descargar perfil completo";
+    playlistHelp.textContent = "Incluye todos los videos públicos que TikTok permita enumerar.";
+  } else {
+    playlistTitle.textContent = "Descargar lista o canal completo";
+    playlistHelp.textContent = "Playlists, colecciones y canales compatibles.";
+  }
+
   $("music-control").classList.toggle("hidden", data.platform !== "youtube");
 
   renderCapabilities(data);
   renderPageImages(data.images || []);
-  renderCarousel(data.entries || []);
-  renderSubtitleTracks(data.subtitles || data.subtitle_tracks || []);
+  renderCarousel(isTikTokProfile ? [] : (data.entries || []));
+  renderSubtitleTracks(data.subtitles || data.subtitle_tracks || [], data);
 }
-
 function renderCapabilities(data) {
   const panel = $("capabilities-panel");
   const box = $("capability-buttons");
   const notes = $("analysis-notes");
   const generic = (data.capabilities || []).filter((cap) =>
-    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom"].includes(cap.id)
+    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom", "collection_subtitles"].includes(cap.id)
   );
 
   const labels = {
@@ -204,6 +236,7 @@ function renderCapabilities(data) {
     image_download: "Descargar imagen",
     image_max: "Original / máxima resolución",
     dezoom: "Reconstruir mosaicos",
+    collection_subtitles: "Todos los subtítulos del perfil",
   };
 
   if (!generic.length && !(data.capabilities || []).length) {
@@ -319,27 +352,45 @@ $("select-no-items").addEventListener("click", () => {
   });
 });
 
-function renderSubtitleTracks(tracks) {
+function renderSubtitleTracks(tracks, data = null) {
   const panel = $("subtitle-panel");
   const box = $("subtitle-tracks");
+  let visibleTracks = [...tracks];
 
-  if (!tracks.length) {
+  if (data?.collection_type === "tiktok_profile") {
+    visibleTracks = [
+      {
+        code: "all",
+        name: "Todos los subtítulos disponibles",
+        automatic: false,
+        formats: [],
+        bulk: true,
+      },
+      ...visibleTracks.filter((track) => track.code !== "all"),
+    ];
+  }
+
+  if (!visibleTracks.length) {
     panel.classList.add("hidden");
     box.innerHTML = "";
     return;
   }
 
-  box.innerHTML = tracks.map((track, index) => `
-    <label class="subtitle-track" data-subtitle-filter="${escapeHtml(
-      `${track.code} ${track.name} ${track.automatic ? "automatico auto" : "manual"}`.toLowerCase()
+  box.innerHTML = visibleTracks.map((track, index) => \`
+    <label class="subtitle-track" data-subtitle-filter="\${escapeHtml(
+      \`\${track.code} \${track.name} \${track.bulk ? "todos perfil" : track.automatic ? "automatico auto" : "manual"}\`.toLowerCase()
     )}">
-      <input type="checkbox" data-subtitle-code="${escapeHtml(track.code)}" ${index === 0 ? "checked" : ""}>
+      <input type="checkbox" data-subtitle-code="\${escapeHtml(track.code)}" \${index === 0 ? "checked" : ""}>
       <span>
-        <strong>${escapeHtml(track.name || track.code)}</strong>
-        <small>${escapeHtml(track.code)} · ${track.automatic ? "generado automáticamente" : "incluido por el autor"}${track.formats?.length ? ` · ${escapeHtml(track.formats.join(", "))}` : ""}</small>
+        <strong>\${escapeHtml(track.name || track.code)}</strong>
+        <small>\${
+          track.bulk
+            ? "todos los videos del perfil · manuales y automáticos cuando existan"
+            : \`\${escapeHtml(track.code)} · \${track.automatic ? "generado automáticamente" : "incluido por el autor"}\${track.formats?.length ? \` · \${escapeHtml(track.formats.join(", "))}\` : ""}\`
+        }</small>
       </span>
     </label>
-  `).join("");
+  \`).join("");
 
   panel.classList.remove("hidden");
 }
@@ -420,6 +471,11 @@ $("capability-buttons").addEventListener("click", async (event) => {
   try {
     if (action === "images") {
       $("page-images-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+
+    if (action === "collection_subtitles") {
+      $("subtitle-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
 
@@ -536,11 +592,15 @@ async function startDownloads(mode) {
   }
 
   const quality = $("quality").value;
-  const playlist = $("playlist").checked;
+  const playlist = $("playlist").checked || currentInspection?.collection_type === "tiktok_profile";
   const musicMetadata = mode === "mp3" && $("music-metadata").checked;
   let selectedItems = null;
 
-  if (urls.length === 1 && currentInspection?.entries?.length > 1) {
+  if (
+    urls.length === 1 &&
+    currentInspection?.collection_type !== "tiktok_profile" &&
+    currentInspection?.entries?.length > 1
+  ) {
     selectedItems = selectedCarouselItems();
     if (!selectedItems?.length) {
       showMessage("Selecciona al menos un elemento de la publicación.", "error");
@@ -622,7 +682,10 @@ $("download-subtitles").addEventListener("click", async () => {
   }
 
   let selectedItems = null;
-  if (currentInspection.entries?.length > 1) {
+  if (
+    currentInspection.collection_type !== "tiktok_profile" &&
+    currentInspection.entries?.length > 1
+  ) {
     selectedItems = selectedCarouselItems();
     if (!selectedItems?.length) {
       showMessage("Selecciona al menos un elemento de la colección.", "error");
@@ -639,7 +702,7 @@ $("download-subtitles").addEventListener("click", async () => {
       body: JSON.stringify({
         url: urls[0],
         mode: "subtitles",
-        playlist: $("playlist").checked,
+        playlist: $("playlist").checked || currentInspection?.collection_type === "tiktok_profile",
         selected_items: selectedItems,
         subtitle_format: $("subtitle-format").value,
         subtitle_languages: languages,
