@@ -100,6 +100,19 @@ async function getCurrentTab() {
   return tabs[0] || null;
 }
 
+async function sendChatMessage(tabId, message) {
+  try {
+    return await browser.tabs.sendMessage(tabId, message);
+  } catch (firstError) {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: ["chat-export.js"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return browser.tabs.sendMessage(tabId, message);
+  }
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "";
   const total = Math.max(0, Math.floor(seconds));
@@ -850,7 +863,7 @@ $("save-ai-chat").addEventListener("click", async () => {
   say("Leyendo la conversación abierta…");
 
   try {
-    const extracted = await browser.tabs.sendMessage(currentTab.id, {
+    const extracted = await sendChatMessage(currentTab.id, {
       type: "exportAiChatMarkdown",
     });
 
@@ -1057,7 +1070,7 @@ async function init() {
 
   if (currentTab?.id && aiChatPlatform(currentUrl)) {
     try {
-      const info = await browser.tabs.sendMessage(currentTab.id, {
+      const info = await sendChatMessage(currentTab.id, {
         type: "inspectAiChat",
       });
 
@@ -1065,19 +1078,22 @@ async function init() {
         aiChatInfo = info;
         $("ai-chat-title").textContent = info.title || "Conversación IA";
         $("ai-chat-info").textContent =
-          `${info.platform_label} · ${info.message_count} mensajes cargados`;
+          info.message_count > 0
+            ? `${info.platform_label} · ${info.message_count} mensajes visibles · al guardar se escanea todo el chat`
+            : `${info.platform_label} detectado · pulsa Guardar Markdown para hacer un escaneo completo`;
+        $("save-ai-chat").disabled = false;
         $("ai-chat-card").classList.remove("hidden");
       } else {
         $("ai-chat-card").classList.remove("hidden");
         $("ai-chat-info").textContent =
-          info?.error || "No pude leer los mensajes de esta conversación.";
-        $("save-ai-chat").disabled = true;
+          info?.error || "Chat detectado. Pulsa Guardar Markdown para intentar el escaneo completo.";
+        $("save-ai-chat").disabled = false;
       }
     } catch (error) {
       $("ai-chat-card").classList.remove("hidden");
       $("ai-chat-info").textContent =
-        "Recarga esta pestaña para activar el exportador de chats.";
-      $("save-ai-chat").disabled = true;
+        "No pude activar el lector automáticamente. Pulsa Guardar Markdown para reintentar.";
+      $("save-ai-chat").disabled = false;
     }
   } else {
     $("ai-chat-card").classList.add("hidden");
