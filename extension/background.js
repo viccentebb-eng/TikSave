@@ -219,6 +219,23 @@ async function logExtensionError(action, error, details = {}) {
   }
 }
 
+async function extractAiChatFromTab(tabId) {
+  try {
+    return await browser.tabs.sendMessage(tabId, {
+      type: "exportAiChatMarkdown",
+    });
+  } catch (firstError) {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: ["chat-export.js"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return browser.tabs.sendMessage(tabId, {
+      type: "exportAiChatMarkdown",
+    });
+  }
+}
+
 async function saveAiChat(payload) {
   const result = await api("/api/chat/export", {
     method: "POST",
@@ -576,9 +593,7 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === "tiksave-save-chat") {
       if (!tab?.id) throw new Error("No pude identificar la pestaña del chat.");
 
-      const extracted = await browser.tabs.sendMessage(tab.id, {
-        type: "exportAiChatMarkdown",
-      });
+      const extracted = await extractAiChatFromTab(tab.id);
 
       if (!extracted?.ok) {
         throw new Error(extracted?.error || "No pude leer la conversación abierta.");
