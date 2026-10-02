@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.13.1",
-  "description": "TikSave local: video, audio, subtítulos, imágenes originales, mosaicos y herramientas de Firefox.",
+  "version": "0.13.2",
+  "description": "TikSave local: perfiles TikTok, video, audio, subtítulos, imágenes originales y herramientas de Firefox.",
   "permissions": [
     "activeTab",
     "scripting",
