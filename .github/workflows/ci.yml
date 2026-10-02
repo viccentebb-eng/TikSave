@@ -72,4 +72,4 @@ jobs:
         run: node --check extension/chat-export.js
 
       - name: Validate Markdown chat storage
-        run: python -c "import tempfile; from pathlib import Path; from app.chat_export import save_chat_markdown; p=Path(tempfile.mkdtemp()); r=save_chat_markdown(p, platform='chatgpt', title='Demo', source_url='https://chatgpt.com/c/demo', markdown='Demo chat export', message_count=1); assert Path(r['path']).exists(); assert 'platform: ChatGPT' in Path(r['path']).read_text(encoding='utf-8')"
+        run: python -c "import tempfile; from pathlib import Path; from app.chat_export import save_chat_markdown; p=Path(tempfile.mkdtemp()); r=save_chat_markdown(p, platform='chatgpt', title='Demo', source_url='https://chatgpt.com/c/demo', markdown='Demo chat export', message_count=1); assert Path(r['path']).exists(); assert 'ChatGPT' in Path(r['path']).read_text(encoding='utf-8')"
