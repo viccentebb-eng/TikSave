@@ -22,6 +22,7 @@ class DownloadRequest(BaseModel):
     music_metadata: bool = False
     subtitle_format: SubtitleFormat = "srt"
     subtitle_languages: list[str] | None = None
+    expected_items: int | None = Field(default=None, ge=1, le=100_000)
     clip_start: float | None = None
     clip_end: float | None = None
     precise_clip: bool = False
