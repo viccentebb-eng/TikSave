@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "TikSave local: video, audio, imágenes y exportación Markdown de chats ChatGPT/Gemini.",
   "permissions": [
     "activeTab",
