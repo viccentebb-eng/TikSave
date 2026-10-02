@@ -396,6 +396,8 @@ class TikSaveDownloader:
             }
             if collection_type:
                 opts["extract_flat"] = "in_playlist"
+            if collection_type == "tiktok_profile":
+                opts["extractor_retries"] = 10
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -708,6 +710,9 @@ class TikSaveDownloader:
                     "sleep_interval_requests": 0.75,
                 }
 
+                if detect_collection_type(str(job["url"])) == "tiktok_profile":
+                    options["extractor_retries"] = 10
+
                 if job.get("selected_items"):
                     options["playlist_items"] = ",".join(
                         str(item) for item in job["selected_items"]
@@ -952,6 +957,10 @@ class TikSaveDownloader:
                 "windowsfilenames": True,
                 "overwrites": False,
             }
+
+            if detect_collection_type(str(job["url"])) == "tiktok_profile":
+                common["extractor_retries"] = 10
+                common["sleep_interval_requests"] = 0.5
 
             if job.get("referer"):
                 headers = dict(common.get("http_headers") or {})
