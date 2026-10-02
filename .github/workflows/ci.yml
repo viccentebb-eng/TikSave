@@ -67,3 +67,9 @@ jobs:
 
       - name: Validate collection URL detection
         run: python -c "from app.downloader import detect_collection_type; assert detect_collection_type('https://www.tiktok.com/@revolutia.ai') == 'tiktok_profile'; assert detect_collection_type('https://www.tiktok.com/@revolutia.ai/video/123') is None; assert detect_collection_type('https://www.youtube.com/@OpenAI/videos') == 'youtube_channel'"
+
+      - name: Validate AI chat exporter JavaScript
+        run: node --check extension/chat-export.js
+
+      - name: Validate Markdown chat storage
+        run: python -c "import tempfile; from pathlib import Path; from app.chat_export import save_chat_markdown; p=Path(tempfile.mkdtemp()); r=save_chat_markdown(p, platform='chatgpt', title='Demo', source_url='https://chatgpt.com/c/demo', markdown='# Demo\n\n## Tú\n\nHola', message_count=1); assert Path(r['path']).exists(); assert 'platform: ChatGPT' in Path(r['path']).read_text(encoding='utf-8')"
