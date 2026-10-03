@@ -287,6 +287,10 @@
 
       next.click();
       await sleep(320);
+
+      const currentOwner = location.pathname.split("/").filter(Boolean)[1] || "";
+      if (initialOwner && currentOwner && currentOwner !== initialOwner) break;
+
       absorb();
 
       const after = [...merged.keys()].join("|");
