@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 from app.dezoom import status as dezoom_status
 from app.downloader import TikSaveDownloader, detect_collection_type, detect_platform
+from app.instagram_profiles import get_scan as get_instagram_profile_scan
 from app.native_image import status as native_image_status
 
 
@@ -578,8 +579,105 @@ def _platform_result(
     return info
 
 
+def _instagram_profile_result(url: str) -> dict[str, Any]:
+    parsed = urlparse(url)
+    username = parsed.path.strip("/").split("/")[0]
+    scan = get_instagram_profile_scan(url)
+
+    if not scan:
+        return {
+            "url": url,
+            "final_url": url,
+            "platform": "instagram",
+            "host": parsed.hostname,
+            "title": f"@{username}",
+            "uploader": username,
+            "thumbnail": None,
+            "kind": "instagram_profile",
+            "collection_type": "instagram_profile",
+            "is_playlist": True,
+            "entry_count": None,
+            "entries": [],
+            "instagram_profile": {
+                "username": username,
+                "counts": {
+                    "posts": 0,
+                    "reels": 0,
+                    "stories": 0,
+                    "highlights": 0,
+                    "total": 0,
+                },
+                "items": [],
+                "needs_browser_scan": True,
+            },
+            "capabilities": [
+                {
+                    "id": "instagram_profile_scan",
+                    "label": "Escanear perfil con Firefox",
+                    "available": True,
+                },
+            ],
+            "notes": [
+                "Perfil de Instagram detectado.",
+                "TikSave necesita la extensión de Firefox para enumerar el perfil usando tu sesión abierta sin copiar cookies ni credenciales.",
+            ],
+            "cached": False,
+        }
+
+    items = scan.get("items") or []
+    counts = scan.get("counts") or {}
+    entries = [
+        {
+            "index": item.get("index"),
+            "id": str(item.get("index") or ""),
+            "title": item.get("label") or item.get("kind") or "Instagram",
+            "url": item.get("url"),
+            "thumbnail": item.get("thumbnail"),
+            "kind": item.get("kind"),
+        }
+        for item in items[:500]
+    ]
+
+    return {
+        "url": url,
+        "final_url": scan.get("profile_url") or url,
+        "platform": "instagram",
+        "host": parsed.hostname,
+        "title": f"@{scan.get('username') or username}",
+        "uploader": scan.get("username") or username,
+        "thumbnail": next((item.get("thumbnail") for item in items if item.get("thumbnail")), None),
+        "kind": "instagram_profile",
+        "collection_type": "instagram_profile",
+        "is_playlist": True,
+        "entry_count": len(items),
+        "entries": entries,
+        "instagram_profile": {
+            "username": scan.get("username") or username,
+            "counts": counts,
+            "items": items,
+            "scanned_at": scan.get("scanned_at"),
+            "needs_browser_scan": False,
+        },
+        "capabilities": [
+            {
+                "id": "instagram_profile",
+                "label": f"Perfil enumerado ({len(items)} elementos)",
+                "available": True,
+            },
+        ],
+        "notes": [
+            "Perfil de Instagram enumerado por la extensión de Firefox.",
+            "Las Stories y algunos contenidos requieren que sigas conectado a Instagram en Firefox.",
+        ],
+        "cached": False,
+    }
+
+
 def analyze(url: str, downloader: TikSaveDownloader, playlist: bool = False) -> dict[str, Any]:
     url = _public_http_url(url)
+
+    if detect_collection_type(url) == "instagram_profile":
+        return _instagram_profile_result(url)
 
     cached = _cache_get(url, playlist)
     if cached is not None:
