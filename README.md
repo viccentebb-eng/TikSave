@@ -480,6 +480,39 @@ Después recarga el complemento temporal desde `about:debugging` y **recarga tam
 - Mientras yt-dlp recorre el perfil, TikSave actualiza `video actual / total` y el porcentaje cuando recibe eventos de descarga de subtítulos.
 - Antes de recibir el primer evento, muestra `0/371` y un mensaje de búsqueda en lugar de un `0%` ambiguo.
 
+
+## Rama experimental 0.15.0 — perfiles completos de Instagram
+
+```text
+feature/instagram-profile-bulk
+```
+
+TikSave reconoce perfiles de Instagram como:
+
+```text
+https://www.instagram.com/usuario/
+```
+
+La extensión de Firefox usa la sesión de Instagram que ya tienes abierta para recorrer el perfil y enumerar:
+
+- fotos / publicaciones;
+- reels;
+- Story activa cuando aparece enlazada;
+- historias destacadas visibles.
+
+El popup muestra los conteos por categoría, una lista numerada y permite elegir qué descargar o usar **Todo**.
+
+### Cómo descarga cada categoría
+
+- **Reels:** se envían al motor local de TikSave como descargas de video.
+- **Fotos / publicaciones:** TikSave abre cada publicación en una pestaña inactiva, usa el detector de carruseles y descarga las imágenes encontradas. Esto permite recuperar más de una imagen cuando la publicación es un carrusel.
+- **Stories / destacadas:** se abren temporalmente con tu sesión de Firefox; TikSave recopila imágenes y fuentes de video detectables. HLS/DASH se envía al backend local.
+- El proceso se hace secuencialmente para no abrir decenas de pestañas a la vez.
+
+La app local puede recibir el resultado del escaneo de Firefox y mostrar los conteos y elementos enumerados. Si pegas un perfil sin haberlo escaneado aún, TikSave indica que debes abrir el perfil en Firefox y usar la extensión para aprovechar tu sesión.
+
+TikSave no copia ni registra cookies, contraseñas o tokens de Instagram. Contenido privado, Stories o elementos que Instagram no muestre a tu cuenta no se intentan eludir.
+
 ## Licencias
 
 TikSave permanece bajo MIT. El instalador descarga dezoomify-rs como ejecutable externo separado. Junto al ejecutable se guarda un aviso de terceros, el enlace al código fuente y, cuando GitHub está disponible, una copia de la licencia GPL-3.0.
