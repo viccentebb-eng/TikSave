@@ -11,6 +11,7 @@ let detectedImages = [];
 let detectedZoomSources = [];
 let dezoomInstalled = false;
 let aiChatInfo = null;
+let instagramProfileScan = null;
 
 function supportedUrl(url) {
   try {
@@ -66,6 +67,36 @@ function isTikTokProfile(url) {
     return tiktok && /^\/@[^/]+\/?$/.test(parsed.pathname);
   } catch {
     return false;
+  }
+}
+
+function isInstagramProfile(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const instagram = host === "instagram.com" || host.endsWith(".instagram.com");
+    if (!instagram) return false;
+    const match = parsed.pathname.match(/^\/([A-Za-z0-9._]+)\/?$/);
+    if (!match) return false;
+    return !new Set([
+      "accounts", "direct", "explore", "reels", "reel", "p", "stories",
+      "about", "developer", "legal", "web", "challenge",
+    ]).has(match[1].toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function sendInstagramProfileMessage(tabId, message) {
+  try {
+    return await browser.tabs.sendMessage(tabId, message);
+  } catch {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: ["instagram-profile.js"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return browser.tabs.sendMessage(tabId, message);
   }
 }
 
@@ -488,6 +519,128 @@ function selectedImages() {
     .filter(Boolean);
 }
 
+function renderInstagramProfile(scan) {
+  instagramProfileScan = scan || null;
+  const card = $("instagram-profile-card");
+
+  if (!scan?.ok) {
+    card.classList.remove("hidden");
+    $("instagram-profile-info").textContent =
+      scan?.error || "No pude enumerar este perfil.";
+    $("instagram-profile-download").disabled = true;
+    return;
+  }
+
+  const counts = scan.counts || {};
+  card.classList.remove("hidden");
+  $("instagram-profile-title").textContent = "@" + scan.username;
+  $("instagram-profile-info").textContent =
+    (counts.total || 0) + " elementos encontrados · " +
+    (counts.posts || 0) + " publicaciones · " +
+    (counts.reels || 0) + " reels" +
+    ((counts.stories || 0) ? " · Story activa" : "") +
+    ((counts.highlights || 0) ? " · " + counts.highlights + " destacadas" : "");
+
+  $("ig-post-count").textContent = String(counts.posts || 0);
+  $("ig-reel-count").textContent = String(counts.reels || 0);
+  $("ig-story-count").textContent = String(counts.stories || 0);
+  $("ig-highlight-count").textContent = String(counts.highlights || 0);
+
+  const list = $("instagram-profile-list");
+  const items = scan.items || [];
+  list.innerHTML = items.length
+    ? items.slice(0, 200).map((item) => `
+        <div class="profile-item">
+          <b>${item.index}</b>
+          <span>${escapeHtml(item.label || item.kind)}</span>
+          <em>${escapeHtml(item.kind)}</em>
+        </div>
+      `).join("")
+    : '<div class="profile-item"><span>No encontré publicaciones en el perfil.</span></div>';
+
+  $("instagram-profile-download").disabled = !items.length;
+}
+
+async function scanInstagramProfile({ quiet = false } = {}) {
+  if (!currentTab?.id || !isInstagramProfile(currentUrl)) return null;
+
+  $("instagram-profile-card").classList.remove("hidden");
+  $("instagram-profile-scan").disabled = true;
+  $("instagram-profile-info").textContent = "Enumerando perfil… puede desplazarse mientras TikSave carga publicaciones.";
+
+  try {
+    const scan = await sendInstagramProfileMessage(currentTab.id, {
+      type: "scanInstagramProfile",
+    });
+    renderInstagramProfile(scan);
+
+    if (scan?.ok) {
+      await send({
+        type: "saveInstagramProfileScan",
+        payload: {
+          profile_url: scan.profile_url,
+          username: scan.username,
+          items: scan.items,
+          counts: scan.counts,
+        },
+      });
+      if (!quiet) say("Perfil enumerado y enviado a TikSave.", "ok");
+    }
+    return scan;
+  } catch (error) {
+    const failed = { ok: false, error: error?.message || String(error) };
+    renderInstagramProfile(failed);
+    if (!quiet) say(failed.error, "error");
+    return failed;
+  } finally {
+    $("instagram-profile-scan").disabled = false;
+  }
+}
+
+function selectedInstagramKinds() {
+  return [...document.querySelectorAll("[data-ig-kind]:checked")]
+    .map((input) => input.dataset.igKind)
+    .filter(Boolean);
+}
+
+async function downloadInstagramProfile() {
+  if (!instagramProfileScan?.ok) {
+    await scanInstagramProfile();
+  }
+  if (!instagramProfileScan?.ok) return;
+
+  const kinds = selectedInstagramKinds();
+  if (!kinds.length) {
+    say("Selecciona al menos una categoría del perfil.", "error");
+    return;
+  }
+
+  $("instagram-profile-download").disabled = true;
+  say("Preparando descarga del perfil de Instagram…");
+
+  try {
+    const result = await send({
+      type: "downloadInstagramProfile",
+      payload: {
+        scan: instagramProfileScan,
+        kinds,
+      },
+    });
+
+    say(
+      "Perfil enviado: " +
+      (result?.reels || 0) + " reels · " +
+      (result?.images || 0) + " imágenes · " +
+      (result?.stories || 0) + " archivos de Stories.",
+      "ok",
+    );
+  } catch (error) {
+    say(error?.message || "No se pudo descargar el perfil.", "error");
+  } finally {
+    $("instagram-profile-download").disabled = false;
+  }
+}
+
 function renderDezoomSources(sources) {
   detectedZoomSources = sources || [];
   const card = $("dezoom-card");
@@ -516,21 +669,24 @@ function configureContext() {
   const youtube = isYouTube(currentUrl);
   const channel = isYouTubeChannel(currentUrl);
   const tiktokProfile = isTikTokProfile(currentUrl);
+  const instagramProfile = isInstagramProfile(currentUrl);
   const chatPlatform = aiChatPlatform(currentUrl);
   const aiChat = Boolean(chatPlatform);
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.disabled = !supported;
+    button.disabled = !supported || instagramProfile;
   });
 
-  $("quality-row").classList.toggle("hidden", aiChat);
-  $("media-buttons").classList.toggle("hidden", aiChat);
-  $("metadata-row").classList.toggle("hidden", !youtube || aiChat);
-  $("collection-row").classList.toggle("hidden", !supported || aiChat);
-  $("clip-row").classList.toggle("hidden", tiktokProfile || aiChat);
+  $("quality-row").classList.toggle("hidden", aiChat || instagramProfile);
+  $("media-buttons").classList.toggle("hidden", aiChat || instagramProfile);
+  $("metadata-row").classList.toggle("hidden", !youtube || aiChat || instagramProfile);
+  $("collection-row").classList.toggle("hidden", !supported || aiChat || instagramProfile);
+  $("clip-row").classList.toggle("hidden", tiktokProfile || aiChat || instagramProfile);
 
   if (aiChat) {
     $("source-title").textContent = chatPlatform + " · conversación";
+  } else if (instagramProfile) {
+    $("source-title").textContent = "Perfil de Instagram";
   } else if (tiktokProfile) {
     $("collection").checked = true;
     $("collection").disabled = true;
@@ -555,7 +711,7 @@ function configureContext() {
     $("source-title").textContent = supported ? "Contenido compatible" : "Pestaña actual";
   }
 
-  if (!tiktokProfile && !aiChat) {
+  if (!tiktokProfile && !aiChat && !instagramProfile) {
     document.querySelector('[data-mode="video"]').textContent = "Video MP4";
     document.querySelector('[data-mode="mp3"]').textContent = "MP3";
     document.querySelector('[data-mode="audio"]').textContent = "Solo audio";
@@ -759,6 +915,13 @@ browser.runtime.onMessage.addListener((message) => {
   if (message?.type === "jobUpdate" && message.job?.id === activeJobId) {
     renderJob(message.job);
   }
+
+  if (message?.type === "instagramProfileProgress") {
+    $("instagram-profile-card").classList.remove("hidden");
+    $("instagram-profile-info").textContent =
+      (message.label || "Procesando perfil") +
+      (message.total ? " · " + message.done + "/" + message.total : "");
+  }
 });
 
 document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -853,6 +1016,34 @@ $("reader-mode").addEventListener("click", async () => {
   } catch (error) {
     say(error?.message || "No se pudo abrir el Modo lectura.", "error");
   }
+});
+
+$("instagram-profile-scan").addEventListener("click", () => scanInstagramProfile());
+
+$("instagram-profile-download").addEventListener("click", downloadInstagramProfile);
+
+$("instagram-profile-all").addEventListener("click", async () => {
+  document.querySelectorAll("[data-ig-kind]").forEach((input) => {
+    input.checked = true;
+  });
+  await downloadInstagramProfile();
+});
+
+$("instagram-profile-open-app").addEventListener("click", async () => {
+  if (instagramProfileScan?.ok) {
+    await send({
+      type: "saveInstagramProfileScan",
+      payload: {
+        profile_url: instagramProfileScan.profile_url,
+        username: instagramProfileScan.username,
+        items: instagramProfileScan.items,
+        counts: instagramProfileScan.counts,
+      },
+    });
+  }
+  browser.tabs.create({
+    url: "http://127.0.0.1:8173/?url=" + encodeURIComponent(currentUrl),
+  });
 });
 
 $("save-ai-chat").addEventListener("click", async () => {
@@ -1068,6 +1259,13 @@ async function init() {
     $("browser-media").classList.add("hidden");
   }
 
+  if (currentTab?.id && isInstagramProfile(currentUrl)) {
+    $("instagram-profile-card").classList.remove("hidden");
+    await scanInstagramProfile({ quiet: true });
+  } else {
+    $("instagram-profile-card").classList.add("hidden");
+  }
+
   if (currentTab?.id && aiChatPlatform(currentUrl)) {
     try {
       const info = await sendChatMessage(currentTab.id, {
@@ -1102,7 +1300,7 @@ async function init() {
   if (currentTab?.id) {
     const platform = currentPlatform();
 
-    if (["Instagram", "TikTok", "Douyin"].includes(platform)) {
+    if (["Instagram", "TikTok", "Douyin"].includes(platform) && !isInstagramProfile(currentUrl)) {
       renderImages(await detectPageImages(currentTab.id));
       setTimeout(async () => {
         renderImages(await detectPageImages(currentTab.id));
