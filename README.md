@@ -1,51 +1,63 @@
-# TikSave Local
+# TikSave
 
-Aplicacion local y extension de Firefox para guardar contenido publico de TikTok sin depender de paginas con publicidad.
+Herramienta local para **guardar contenido de internet** sin anuncios ni servidores de terceros:
 
-## Funciones
+- **Descargar** videos de TikTok (y YouTube, Instagram, X, Facebook, Reddit, Vimeo, Twitch, Pinterest) como MP4, MP3 o audio original.
+- **Texto para IA**: transcripción + una *ficha Markdown* (autor, fecha, estadísticas, descripción, transcripción) lista para pegar en Claude o ChatGPT gastando muy pocos tokens.
+- **Capturar webs**: cualquier página pública a Markdown limpio, HTML offline (un solo archivo con imágenes y CSS), captura de pantalla completa (PNG) o PDF; opcionalmente sigue los enlaces del mismo sitio.
+- **Lotes y perfiles**: pega muchos enlaces a la vez o carga los últimos N videos de un perfil.
+- **Biblioteca** integrada con visor (video, audio, texto, imágenes), búsqueda y borrado.
+- **Cola con progreso**, cancelar, reintentar e historial que sobrevive al cerrar la app.
+- Extensión para Firefox/Chrome: descarga o captura la pestaña actual con un clic.
 
-- Descarga de video MP4 con la mejor calidad disponible.
-- Extraccion a MP3 mediante FFmpeg.
-- Descarga del mejor audio disponible sin convertir.
-- Vista previa con titulo, autor y miniatura.
-- Progreso de descarga en tiempo real.
-- Guarda por defecto en `Descargas/TikSave`.
-- Boton para abrir la carpeta de descargas.
-- Extension de Firefox para enviar la pestaña actual a TikSave.
-- Todo corre en `127.0.0.1`; no hay servidor externo de TikSave.
+Todo corre en `127.0.0.1`. Los archivos se guardan en `Descargas/TikSave` (descargas) y `Descargas/TikSave/Sitios` (capturas).
 
-## Windows
+## Instalar y usar (Windows)
 
 ```powershell
 git clone https://github.com/viccentebb-eng/TikSave.git
 cd TikSave
-.\scripts\install-windows.ps1
-.\scripts\run-windows.ps1
+.\install-windows.bat    # una sola vez
+.\run-windows.bat        # abre http://127.0.0.1:8173
 ```
 
-Al iniciar se abre `http://127.0.0.1:8173`.
+La instalación incluye `curl_cffi`, **imprescindible para TikTok** (sin él TikTok bloquea al extractor con
+"Unexpected response from webpage request"). Si algún día deja de funcionar, abre **Ajustes → Actualizar yt-dlp**.
 
-## Extension temporal de Firefox
+Requisitos opcionales:
 
-1. Inicia TikSave Local.
-2. En Firefox abre `about:debugging`.
-3. Entra a **Este Firefox**.
-4. Pulsa **Cargar complemento temporal**.
-5. Selecciona `extension/manifest.json`.
-6. Abre un TikTok y pulsa el icono de TikSave.
+| Función | Necesita |
+|---|---|
+| MP3, subtítulos SRT, portadas JPG | FFmpeg (el instalador intenta ponerlo con `winget`) |
+| Captura de pantalla, PDF, páginas hechas con JavaScript | Microsoft Edge o Google Chrome (ya instalados en Windows) |
+| Transcribir videos **sin subtítulos** | `pip install faster-whisper` (modelo local, sin nube; `TIKSAVE_WHISPER_MODEL=small` para más precisión) |
 
-## Desarrollo manual
+## Extensión (Firefox o Chrome)
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+1. Inicia TikSave.
+2. Firefox: `about:debugging` → *Este Firefox* → *Cargar complemento temporal* → `extension/manifest.json`.
+   Chrome/Edge: `chrome://extensions` → *Modo desarrollador* → *Cargar descomprimida* → carpeta `extension`.
+3. En un video pulsa el icono: MP4, MP3, Audio o **Kit para IA**. En cualquier página: **Capturar esta página**.
+
+## Variables de entorno
+
+`TIKSAVE_PORT` (8173) · `TIKSAVE_DOWNLOAD_DIR` · `TIKSAVE_HOME` (ajustes e historial, por defecto `~/.tiksave`) ·
+`TIKSAVE_BROWSER` (ruta a un navegador Chromium para las capturas) · `TIKSAVE_ALLOW_PRIVATE=1` (permitir capturar direcciones locales).
+
+## Desarrollo
+
+```bash
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
 python -m app.main
+pytest
 ```
 
 ## Seguridad y alcance
 
-TikSave valida que el enlace pertenezca a TikTok y no incorpora cookies de cuentas ni mecanismos para acceder a contenido privado. Esta pensado para contenido publico que el usuario tenga derecho a guardar.
+- El servidor solo acepta peticiones de la propia interfaz y de la extensión (comprueba `Host` y `Origin`), así que otra web abierta en tu navegador no puede ordenarle nada.
+- El capturador bloquea direcciones locales/privadas (SSRF), valida cada redirección, limita tamaños y respeta `robots.txt` al seguir enlaces.
+- No usa cookies ni cuentas: solo contenido público. Úsalo únicamente con contenido que tengas derecho a guardar.
 
 ## Licencia
 

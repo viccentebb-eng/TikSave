@@ -1,293 +1,359 @@
+"""Descargas con yt-dlp: video, audio, transcripcion, portada y ficha Markdown."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
+import shutil
+import subprocess
+import sys
 import threading
-import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import yt_dlp
 
+from app.config import SettingsStore
+from app.jobs import JobCancelled, JobStore
+from app.security import validate_media_url
+from app.textutils import build_notes, subtitles_to_text
 
-ALLOWED_HOSTS = {
-    "tiktok.com",
-    "www.tiktok.com",
-    "m.tiktok.com",
-    "vm.tiktok.com",
-    "vt.tiktok.com",
-}
-
-# TikTok currently varies its anti-bot response according to the HTTP User-Agent.
-# Keep more than one normal browser UA so TikSave can retry without asking the
-# user to change yt-dlp flags manually.
-DEFAULT_USER_AGENTS = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
-)
-
+MODES = {"video", "mp3", "audio", "transcript", "cover"}
 ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-RETRYABLE_TIKTOK_ERRORS = (
-    "Unexpected response from webpage request",
-    "Unable to extract universal data for rehydration",
-)
-
-
-def validate_tiktok_url(value: str) -> str:
-    value = value.strip()
-    parsed = urlparse(value)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("El enlace debe comenzar con http:// o https://")
-    if host not in ALLOWED_HOSTS and not host.endswith(".tiktok.com"):
-        raise ValueError("Solo se admiten enlaces de TikTok.")
-    return value
-
-
-def default_download_dir() -> Path:
-    configured = os.getenv("TIKSAVE_DOWNLOAD_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / "Downloads" / "TikSave").resolve()
-
-
-def browser_user_agents() -> tuple[str, ...]:
-    configured = os.getenv("TIKSAVE_USER_AGENT", "").strip()
-    if configured:
-        return (configured, *DEFAULT_USER_AGENTS)
-    return DEFAULT_USER_AGENTS
+SUB_EXTS = (".srt", ".vtt", ".ass", ".json3", ".ttml")
+# TikTok publica los idiomas con codigo ISO 639-2 (spa-ES); aceptamos ambos.
+LANG_ALIASES = {"es": "spa", "en": "eng", "pt": "por", "fr": "fra", "de": "deu", "it": "ita", "ca": "cat", "zh": "zho"}
+OUTPUT_TEMPLATE = "%(uploader,creator,channel|Desconocido)s - %(title).80s [%(id)s].%(ext)s"
 
 
 def clean_error(value: Exception | str) -> str:
     text = ANSI_RE.sub("", str(value))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def is_retryable_tiktok_error(value: Exception | str) -> bool:
+def has_curl_cffi() -> bool:
+    return importlib.util.find_spec("curl_cffi") is not None
+
+
+def has_whisper() -> bool:
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
+def friendly_error(value: Exception | str) -> str:
     text = clean_error(value)
-    return any(marker.lower() in text.lower() for marker in RETRYABLE_TIKTOK_ERRORS)
+    low = text.lower()
+    if "impersonat" in low or "unexpected response from webpage" in low or "rehydration" in low:
+        if not has_curl_cffi():
+            return ("TikTok bloquea al extractor porque falta 'curl_cffi'. Ejecuta de nuevo "
+                    "install-windows.bat (o: pip install -U \"yt-dlp[default,curl-cffi]\") y reinicia TikSave.")
+        return ("TikTok rechazo la peticion. Pulsa Ajustes > Actualizar yt-dlp y reintenta; "
+                "si persiste, puede ser una restriccion temporal de tu conexion.")
+    if any(m in low for m in ("private", "log in", "login", "sign in", "cookies")):
+        return "Este contenido es privado o exige iniciar sesion. TikSave solo guarda contenido publico."
+    if any(m in low for m in ("removed", "unavailable", "not available", "404", "no longer", "deleted")):
+        return "El contenido ya no esta disponible (borrado o restringido en tu region)."
+    if "ffmpeg" in low or "ffprobe" in low:
+        return "Falta FFmpeg (necesario para MP3 y subtitulos SRT). Instala FFmpeg y reinicia TikSave."
+    if "unsupported url" in low or "no video formats" in low or "/photo/" in low:
+        return "No se encontro un video en ese enlace (las publicaciones de solo fotos no estan soportadas)."
+    if any(m in low for m in ("timed out", "timeout", "connection", "getaddrinfo", "name resolution")):
+        return "Error de red al conectar. Revisa tu conexion a internet y reintenta."
+    return text[:600]
 
 
-@dataclass
-class Job:
-    id: str
-    url: str
-    mode: str
-    status: str = "queued"
-    progress: float = 0.0
-    speed: str | None = None
-    eta: str | None = None
-    filename: str | None = None
-    title: str | None = None
-    error: str | None = None
+def pick_subtitle_langs(info: dict, wanted: list[str]) -> list[str]:
+    """Elige las claves exactas de subtitulo (manual primero, luego automatico)."""
+    chosen: list[str] = []
+    for pool in (info.get("subtitles") or {}, info.get("automatic_captions") or {}):
+        keys = [k for k, v in pool.items() if v and k != "live_chat"]
+        for want in wanted:
+            prefixes = {want.lower(), LANG_ALIASES.get(want.lower(), want.lower())}
+            for key in keys:
+                if key.lower().split("-")[0] in prefixes and key not in chosen:
+                    chosen.append(key)
+        if chosen:
+            return chosen[:2]
+    for pool in (info.get("subtitles") or {}, info.get("automatic_captions") or {}):
+        keys = [k for k, v in pool.items() if v and k != "live_chat"]
+        if keys:
+            return keys[:1]
+    return []
 
 
-class JobStore:
-    def __init__(self) -> None:
-        self._jobs: dict[str, Job] = {}
-        self._lock = threading.Lock()
+class Downloader:
+    def __init__(self, settings: SettingsStore, jobs: JobStore, workers: int = 3) -> None:
+        self.settings = settings
+        self.jobs = jobs
+        self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tiksave")
+        self._run_lock = threading.Lock()
 
-    def create(self, url: str, mode: str) -> Job:
-        job = Job(id=uuid.uuid4().hex, url=url, mode=mode)
-        with self._lock:
-            self._jobs[job.id] = job
-        return job
-
-    def update(self, job_id: str, **changes: Any) -> None:
-        with self._lock:
-            job = self._jobs[job_id]
-            for key, value in changes.items():
-                setattr(job, key, value)
-
-    def get(self, job_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            return asdict(job) if job else None
-
-
-class TikSaveDownloader:
-    def __init__(self) -> None:
-        self.download_dir = default_download_dir()
-        self.download_dir.mkdir(parents=True, exist_ok=True)
-        self.jobs = JobStore()
-        self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tiksave")
+    # ------------------------------------------------------------------ info
+    @staticmethod
+    def capabilities() -> dict[str, Any]:
+        return {
+            "ffmpeg": shutil.which("ffmpeg") is not None,
+            "curl_cffi": has_curl_cffi(),
+            "whisper": has_whisper(),
+            "yt_dlp": yt_dlp.version.__version__,
+        }
 
     @staticmethod
-    def _base_options(user_agent: str) -> dict[str, Any]:
+    def _base_options() -> dict[str, Any]:
         return {
             "quiet": True,
+            "noprogress": True,
             "no_warnings": True,
             "noplaylist": True,
-            "http_headers": {
-                "User-Agent": user_agent,
-                "Accept-Language": "es-MX,es;q=0.9,en;q=0.7",
-            },
-            "retries": 2,
+            "retries": 3,
+            "fragment_retries": 3,
+            "socket_timeout": 30,
+            "http_headers": {"Accept-Language": "es-MX,es;q=0.9,en;q=0.7"},
+            "windowsfilenames": True,
         }
 
     def inspect(self, url: str) -> dict[str, Any]:
-        url = validate_tiktok_url(url)
-        last_error: Exception | None = None
+        url, site = validate_media_url(url)
+        with yt_dlp.YoutubeDL({**self._base_options(), "skip_download": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+        subs = list((info.get("subtitles") or {}).keys())
+        auto = list((info.get("automatic_captions") or {}).keys())
+        heights = [f.get("height") for f in info.get("formats") or [] if f.get("height")]
+        return {
+            "id": info.get("id"),
+            "site": site,
+            "title": (info.get("title") or info.get("description") or site),
+            "description": info.get("description"),
+            "uploader": info.get("uploader") or info.get("creator") or info.get("channel"),
+            "thumbnail": info.get("thumbnail"),
+            "duration": info.get("duration"),
+            "view_count": info.get("view_count"),
+            "like_count": info.get("like_count"),
+            "upload_date": info.get("upload_date"),
+            "max_height": max(heights) if heights else None,
+            "subtitle_langs": subs + [a for a in auto if a not in subs],
+            "has_subtitles": bool(subs or auto),
+            "webpage_url": info.get("webpage_url") or url,
+        }
 
-        for user_agent in browser_user_agents():
-            opts = {
-                **self._base_options(user_agent),
-                "skip_download": True,
-            }
+    def expand(self, url: str, limit: int = 20) -> list[dict[str, str]]:
+        """Perfil / lista -> enlaces individuales (los ultimos `limit`)."""
+        url, _ = validate_media_url(url)
+        opts = {**self._base_options(), "noplaylist": False, "extract_flat": "in_playlist",
+                "playlistend": max(1, min(limit, 100)), "skip_download": True}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        entries = info.get("entries")
+        if entries is None:
+            return [{"url": url, "title": info.get("title") or url}]
+        out = []
+        for entry in entries:
+            if not entry:
+                continue
+            link = entry.get("webpage_url") or entry.get("url")
             try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                return {
-                    "id": info.get("id"),
-                    "title": info.get("title") or info.get("description") or "TikTok",
-                    "uploader": info.get("uploader") or info.get("creator"),
-                    "thumbnail": info.get("thumbnail"),
-                    "duration": info.get("duration"),
-                    "webpage_url": info.get("webpage_url") or url,
-                }
-            except Exception as exc:
-                last_error = exc
-                if not is_retryable_tiktok_error(exc):
-                    break
+                link, _ = validate_media_url(link or "")
+            except ValueError:
+                continue
+            out.append({"url": link, "title": entry.get("title") or entry.get("id") or link})
+        return out[:limit]
 
-        if last_error:
-            raise last_error
-        raise RuntimeError("TikTok no devolvió información del video.")
-
-    def enqueue(self, url: str, mode: str) -> dict[str, Any]:
-        url = validate_tiktok_url(url)
-        job = self.jobs.create(url=url, mode=mode)
-        self.pool.submit(self._download, job.id)
+    # --------------------------------------------------------------- enqueue
+    def enqueue(self, url: str, mode: str = "video", transcript: bool = False,
+                cover: bool = False, notes: bool = False) -> dict[str, Any]:
+        url, site = validate_media_url(url)
+        if mode not in MODES:
+            raise ValueError("Modo de descarga invalido.")
+        options = {"site": site, "transcript": transcript or mode == "transcript",
+                   "cover": cover or mode == "cover", "notes": notes}
+        job = self.jobs.create("download", url, mode, options)
+        self.pool.submit(self._run, job.id)
         return self.jobs.get(job.id) or {}
 
-    @staticmethod
-    def _safe_title(value: str | None) -> str | None:
-        if not value:
-            return value
-        return re.sub(r"\s+", " ", value).strip()[:180]
+    def retry(self, job_id: str) -> dict[str, Any] | None:
+        old = self.jobs.get(job_id)
+        if not old or old["kind"] != "download":
+            return None
+        o = old["options"]
+        return self.enqueue(old["url"], old["mode"], o.get("transcript", False), o.get("cover", False),
+                            o.get("notes", False))
+
+    # ------------------------------------------------------------------- run
+    def _run(self, job_id: str) -> None:
+        try:
+            self.jobs.check_cancel(job_id)
+            self._download(job_id)
+        except JobCancelled:
+            self.jobs.update(job_id, status="cancelled", stage=None, speed=None, eta=None)
+        except Exception as exc:  # noqa: BLE001 - se reporta al usuario
+            self.jobs.update(job_id, status="error", stage=None, speed=None, eta=None,
+                             error=friendly_error(exc))
+
+    def _target_dir(self, site: str) -> Path:
+        base = self.settings.download_dir
+        target = base / site if self.settings.value.organize_by_site else base
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _format_options(self, mode: str, has_ffmpeg: bool) -> dict[str, Any]:
+        if mode == "video":
+            if not has_ffmpeg:
+                return {"format": "best[ext=mp4]/best"}
+            opts: dict[str, Any] = {"format": "bv*+ba/b", "merge_output_format": "mp4"}
+            if self.settings.value.prefer_h264:
+                opts["format_sort"] = ["vcodec:h264", "res", "acodec:aac"]
+            return opts
+        if mode == "mp3":
+            return {"format": "bestaudio/best", "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
+                {"key": "FFmpegMetadata"}]}
+        if mode == "audio":
+            return {"format": "bestaudio/best"}
+        return {"format": "best/bestvideo*+bestaudio", "skip_download": True}
 
     def _download(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
         if not job:
             return
+        mode, options, url = job["mode"], job["options"], job["url"]
+        caps = self.capabilities()
+        if mode == "mp3" and not caps["ffmpeg"]:
+            raise RuntimeError("ffmpeg no encontrado")
+        want_transcript, want_cover, want_notes = options["transcript"], options["cover"], options["notes"]
+        out_dir = self._target_dir(options["site"])
 
-        self.jobs.update(job_id, status="starting")
+        self.jobs.update(job_id, status="starting", stage="Analizando enlace", progress=0.0)
+        with yt_dlp.YoutubeDL({**self._base_options(), "skip_download": True}) as probe:
+            probe_info = probe.extract_info(url, download=False)
+        self.jobs.update(job_id, title=(probe_info.get("title") or probe_info.get("description") or "")[:180] or None,
+                         uploader=probe_info.get("uploader") or probe_info.get("creator"),
+                         thumbnail=probe_info.get("thumbnail"))
+        self.jobs.check_cancel(job_id)
+
+        top = {"value": 0.0}
 
         def progress_hook(data: dict[str, Any]) -> None:
-            status = data.get("status")
-            if status == "downloading":
+            self.jobs.check_cancel(job_id)
+            if data.get("status") == "downloading":
                 total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-                downloaded = data.get("downloaded_bytes") or 0
-                pct = (downloaded / total * 100.0) if total else 0.0
-                self.jobs.update(
-                    job_id,
-                    status="downloading",
-                    progress=round(min(max(pct, 0.0), 100.0), 1),
-                    speed=data.get("_speed_str"),
-                    eta=data.get("_eta_str"),
-                    filename=data.get("filename"),
-                )
-            elif status == "finished":
-                self.jobs.update(
-                    job_id,
-                    status="processing",
-                    progress=100.0,
-                    filename=data.get("filename"),
-                )
+                pct = (data.get("downloaded_bytes") or 0) / total * 100 if total else top["value"]
+                top["value"] = max(top["value"], min(pct, 99.0))
+                self.jobs.update(job_id, status="downloading", stage="Descargando", progress=round(top["value"], 1),
+                                 speed=ANSI_RE.sub("", data.get("_speed_str") or "").strip() or None,
+                                 eta=ANSI_RE.sub("", data.get("_eta_str") or "").strip() or None)
+            elif data.get("status") == "finished":
+                self.jobs.update(job_id, status="processing", stage="Procesando archivo", progress=99.0,
+                                 speed=None, eta=None)
 
-        output_template = str(
-            self.download_dir
-            / "%(uploader|creator|channel)s - %(title).100s [%(id)s].%(ext)s"
-        )
+        def pp_hook(data: dict[str, Any]) -> None:
+            self.jobs.check_cancel(job_id)
+            if data.get("status") == "started":
+                self.jobs.update(job_id, status="processing", stage="Procesando archivo", progress=99.0)
 
-        mode = job["mode"]
-        mode_options: dict[str, Any] = {}
+        opts: dict[str, Any] = {
+            **self._base_options(),
+            **self._format_options(mode, caps["ffmpeg"]),
+            "outtmpl": str(out_dir / OUTPUT_TEMPLATE),
+            "progress_hooks": [progress_hook],
+            "postprocessor_hooks": [pp_hook],
+        }
+        sub_langs: list[str] = []
+        if want_transcript or want_notes:
+            sub_langs = pick_subtitle_langs(probe_info, self.settings.value.subtitle_langs)
+            if sub_langs:
+                opts.update({"writesubtitles": True, "writeautomaticsub": True,
+                             "subtitleslangs": sub_langs, "subtitlesformat": "srt/vtt/best"})
+                if caps["ffmpeg"]:
+                    opts["postprocessors"] = [*opts.get("postprocessors", []),
+                                              {"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"}]
+        if want_cover:
+            opts["writethumbnail"] = True
+            if caps["ffmpeg"]:
+                opts["postprocessors"] = [*opts.get("postprocessors", []),
+                                          {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"}]
 
-        if mode == "video":
-            mode_options.update(
-                {
-                    "format": "bestvideo*+bestaudio/best",
-                    "merge_output_format": "mp4",
-                }
-            )
-        elif mode == "mp3":
-            mode_options.update(
-                {
-                    "format": "bestaudio/best",
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "mp3",
-                            "preferredquality": "192",
-                        }
-                    ],
-                }
-            )
-        elif mode == "audio":
-            mode_options.update({"format": "bestaudio/best"})
-        else:
-            self.jobs.update(job_id, status="error", error="Modo de descarga inválido")
-            return
+        self.jobs.update(job_id, status="downloading", stage="Descargando")
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            downloads = info.get("requested_downloads") or []
+            media_path = Path(downloads[0]["filepath"]) if downloads and downloads[0].get("filepath") else None
+            final = Path(ydl.prepare_filename(info))
+            stem_path = final.with_name(final.name[: -len(final.suffix)] if final.suffix else final.name)
+        has_media = mode in {"video", "mp3", "audio"} and media_path is not None and media_path.exists()
 
-        last_error: Exception | None = None
+        transcript_text, transcript_source = None, None
+        if want_transcript or want_notes:
+            self.jobs.update(job_id, status="processing", stage="Preparando transcripcion", progress=99.0)
+            transcript_text, transcript_source = self._collect_transcript(
+                stem_path, sub_langs, media_path if has_media else None, url, out_dir, job_id)
+            if want_transcript and transcript_text:
+                stem_path.with_name(stem_path.name + ".txt").write_text(transcript_text, encoding="utf-8")
+            elif want_transcript:
+                self.jobs.update(job_id, warnings=[*(self.jobs.get(job_id) or {}).get("warnings", []),
+                                                   "Este contenido no tiene subtitulos"
+                                                   + ("" if has_whisper() else
+                                                      " (instala faster-whisper para transcribir el audio)") + "."])
+        if want_notes:
+            self.jobs.update(job_id, stage="Generando ficha Markdown")
+            md = build_notes(info, options["site"], transcript_text, transcript_source)
+            stem_path.with_name(stem_path.name + ".md").write_text(md, encoding="utf-8")
 
-        for attempt, user_agent in enumerate(browser_user_agents(), start=1):
-            common: dict[str, Any] = {
-                **self._base_options(user_agent),
-                **mode_options,
-                "outtmpl": output_template,
-                "progress_hooks": [progress_hook],
-                "windowsfilenames": True,
-                "overwrites": False,
-            }
+        files = self._collect_files(stem_path)
+        primary = str(media_path) if has_media else (files[0] if files else None)
+        self.jobs.update(job_id, status="done", stage=None, progress=100.0, speed=None, eta=None,
+                         files=files, filename=primary,
+                         title=(info.get("title") or info.get("description") or "")[:180] or None)
 
-            try:
-                self.jobs.update(
-                    job_id,
-                    status="starting",
-                    progress=0.0,
-                    speed=None,
-                    eta=None,
-                    error=None,
-                )
-                with yt_dlp.YoutubeDL(common) as ydl:
-                    info = ydl.extract_info(job["url"], download=True)
-                    final_name = ydl.prepare_filename(info)
-                    if mode == "mp3":
-                        final_name = str(Path(final_name).with_suffix(".mp3"))
-                    self.jobs.update(
-                        job_id,
-                        status="done",
-                        progress=100.0,
-                        title=self._safe_title(info.get("title") or info.get("description")),
-                        filename=final_name,
-                        speed=None,
-                        eta=None,
-                    )
-                    return
-            except Exception as exc:
-                last_error = exc
-                if not is_retryable_tiktok_error(exc):
-                    break
-                if attempt < len(browser_user_agents()):
-                    self.jobs.update(
-                        job_id,
-                        status="starting",
-                        progress=0.0,
-                        error=None,
-                    )
+    # --------------------------------------------------------------- helpers
+    @staticmethod
+    def _collect_files(stem_path: Path) -> list[str]:
+        prefix = stem_path.name + "."
+        found = [p for p in stem_path.parent.iterdir()
+                 if p.is_file() and p.name.startswith(prefix) and not p.name.endswith((".part", ".ytdl", ".temp"))]
+        return [str(p) for p in sorted(found)]
 
-        error_text = clean_error(last_error or "Error desconocido")
-        if is_retryable_tiktok_error(error_text):
-            error_text = (
-                "TikTok rechazó temporalmente la petición del extractor incluso después "
-                "de probar varios perfiles de navegador. Vuelve a intentar; si continúa, "
-                "TikTok puede estar aplicando una restricción temporal a esta conexión."
-            )
-        self.jobs.update(job_id, status="error", error=error_text[:1000])
+    def _collect_transcript(self, stem_path: Path, langs: list[str], media: Path | None,
+                            url: str, out_dir: Path, job_id: str) -> tuple[str | None, str | None]:
+        prefix = stem_path.name + "."
+        subs = sorted(p for p in stem_path.parent.iterdir()
+                      if p.name.startswith(prefix) and p.suffix.lower() in SUB_EXTS)
+        subs.sort(key=lambda p: p.suffix.lower() != ".srt")  # prefiere SRT
+        for sub in subs:
+            text = subtitles_to_text(sub.read_text(encoding="utf-8", errors="ignore"))
+            if text:
+                lang = sub.name[len(prefix):].rsplit(".", 1)[0]
+                return text, f"subtitulos de la plataforma ({lang})"
+        if has_whisper():
+            return self._whisper(media, url, out_dir, job_id), "transcripcion automatica local (Whisper)"
+        return None, None
+
+    def _whisper(self, media: Path | None, url: str, out_dir: Path, job_id: str) -> str | None:
+        from faster_whisper import WhisperModel  # import perezoso: es opcional
+
+        tmp_dir = None
+        source = media
+        if source is None:
+            tmp_dir = out_dir / ".tmp" / job_id
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            with yt_dlp.YoutubeDL({**self._base_options(), "format": "bestaudio/best",
+                                   "outtmpl": str(tmp_dir / "audio.%(ext)s")}) as ydl:
+                info = ydl.extract_info(url, download=True)
+                source = Path(info["requested_downloads"][0]["filepath"])
+        try:
+            self.jobs.update(job_id, stage="Transcribiendo con Whisper (puede tardar)")
+            model = WhisperModel(os.getenv("TIKSAVE_WHISPER_MODEL", "base"), compute_type="int8")
+            segments, _ = model.transcribe(str(source), vad_filter=True)
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+            return text or None
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ---------------------------------------------------------------- update
+    @staticmethod
+    def update_ytdlp() -> dict[str, Any]:
+        cmd = [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default,curl-cffi]"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        tail = (proc.stdout + proc.stderr).strip().splitlines()[-3:]
+        return {"ok": proc.returncode == 0, "output": "\n".join(tail),
+                "restart_required": proc.returncode == 0}

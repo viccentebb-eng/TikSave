@@ -1,1 +1,12 @@
-:root{font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;color-scheme:dark}body{margin:0;background:#111216;color:#fff;min-width:310px}main{padding:18px}.mark{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:#f5f6f7;color:#111216;font-weight:900}h1{margin:10px 0 4px;font-size:24px}p{color:#a9afba;font-size:12px;line-height:1.35;overflow-wrap:anywhere;max-height:48px;overflow:hidden}.buttons{display:grid;gap:8px;margin-top:14px}button{border:1px solid #3e424b;border-radius:10px;padding:10px 12px;background:#272a31;color:#fff;font-weight:750;cursor:pointer}button.primary{background:#f5f6f7;border-color:#f5f6f7;color:#111216}button.ghost{background:transparent;color:#bbc1cb}button:disabled{opacity:.45;cursor:not-allowed}#message{min-height:18px;margin-top:10px;font-size:12px;color:#bac0ca}#message.error{color:#ffb5be}#message.ok{color:#aee9c2}
+:root{font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;color-scheme:dark light}
+body{margin:0;background:#111216;color:#fff;min-width:320px}
+@media (prefers-color-scheme:light){body{background:#fff;color:#14161b}button{background:#eef0f4!important;color:#14161b!important;border-color:#d5d9e0!important}button.primary{background:#e5173f!important;color:#fff!important}}
+main{padding:16px}header{display:flex;gap:10px;align-items:center}
+.mark{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,#fe2c55,#ff6a3d);color:#fff;font-weight:900}
+h1{margin:0;font-size:20px}.site{font-size:12px;color:#98a1b3}
+p{color:#98a1b3;font-size:12px;line-height:1.35;overflow-wrap:anywhere;max-height:34px;overflow:hidden;margin:12px 0 0}
+.buttons{display:grid;gap:8px;margin-top:12px}.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{border:1px solid #3e424b;border-radius:10px;padding:10px 12px;background:#272a31;color:#fff;font-weight:650;cursor:pointer;font:inherit;font-weight:650}
+button.primary{background:#fe2c55;border-color:#fe2c55}button.ghost{background:transparent!important}button:disabled{opacity:.45;cursor:not-allowed}
+.hidden{display:none!important}.track{height:6px;border-radius:9px;background:#272a31;margin-top:12px;overflow:hidden}#fill{height:100%;width:0;background:linear-gradient(90deg,#25f4ee,#fe2c55);transition:width .3s}
+#message{min-height:18px;margin-top:10px;font-size:12.5px;color:#98a1b3;overflow-wrap:anywhere}#message.error{color:#ff8c9b}#message.ok{color:#3ddc97}

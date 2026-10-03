@@ -1,2 +1,29 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"></head><body><main><div class="mark">TS</div><h1>TikSave</h1><p id="url">Leyendo pestaña…</p><div class="buttons"><button data-mode="video" class="primary">Descargar MP4</button><button data-mode="mp3">Descargar MP3</button><button data-mode="audio">Audio original</button><button id="open" class="ghost">Abrir TikSave</button></div><div id="message"></div></main><script src="popup.js"></script></body></html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header><div class="mark">TS</div><div><h1>TikSave</h1><div id="site" class="site"></div></div></header>
+    <p id="url">Leyendo pestaña…</p>
+    <section id="dl" class="buttons hidden">
+      <button data-mode="video" class="primary">Descargar video MP4</button>
+      <div class="two">
+        <button data-mode="mp3">Audio MP3</button>
+        <button data-mode="audio">Audio original</button>
+      </div>
+      <button data-kit="1" title="Transcripción + ficha Markdown + portada">Kit para IA (texto + ficha)</button>
+    </section>
+    <section class="buttons">
+      <button id="capture" class="hidden">Capturar esta página (Markdown + HTML)</button>
+      <button id="open" class="ghost">Abrir TikSave</button>
+    </section>
+    <div id="bar" class="track hidden"><div id="fill"></div></div>
+    <div id="message" role="status"></div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
