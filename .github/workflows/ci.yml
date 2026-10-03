@@ -73,3 +73,12 @@ jobs:
 
       - name: Validate Markdown chat storage
         run: python -c "import tempfile; from pathlib import Path; from app.chat_export import save_chat_markdown; p=Path(tempfile.mkdtemp()); r=save_chat_markdown(p, platform='chatgpt', title='Demo', source_url='https://chatgpt.com/c/demo', markdown='Demo chat export', message_count=1); assert Path(r['path']).exists(); assert 'ChatGPT' in Path(r['path']).read_text(encoding='utf-8')"
+
+      - name: Validate Instagram profile scanner JavaScript
+        run: node --check extension/instagram-profile.js
+
+      - name: Validate Instagram profile URL detection
+        run: python -c "from app.downloader import detect_collection_type; assert detect_collection_type('https://www.instagram.com/natgeo/') == 'instagram_profile'; assert detect_collection_type('https://www.instagram.com/reel/ABC123/') is None"
+
+      - name: Validate Instagram profile cache
+        run: python -c "from app.instagram_profiles import put_scan, get_scan; s=put_scan({'profile_url':'https://instagram.com/demo/','username':'demo','items':[],'counts':{'total':0}}); assert get_scan('https://www.instagram.com/demo/') is not None"
