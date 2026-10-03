@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikSave",
-  "version": "0.14.2",
-  "description": "TikSave local: video, audio, imágenes y exportación Markdown de chats ChatGPT/Gemini.",
+  "version": "0.15.0",
+  "description": "TikSave local: perfiles Instagram/TikTok, video, audio, imágenes y exportación Markdown de chats IA.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -136,6 +136,17 @@
       ],
       "js": [
         "chat-export.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.instagram.com/*",
+        "*://instagram.com/*"
+      ],
+      "js": [
+        "instagram-profile.js"
       ],
       "run_at": "document_idle",
       "all_frames": false
