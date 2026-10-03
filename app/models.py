@@ -72,3 +72,18 @@ class ChatExportRequest(BaseModel):
     source_url: HttpUrl
     markdown: str = Field(min_length=1, max_length=8_000_000)
     message_count: int | None = Field(default=None, ge=0, le=100_000)
+
+
+class InstagramProfileItem(BaseModel):
+    index: int = Field(ge=1, le=100_000)
+    kind: Literal["post", "reel", "story", "highlight"]
+    url: HttpUrl
+    thumbnail: HttpUrl | None = None
+    label: str | None = Field(default=None, max_length=300)
+
+
+class InstagramProfileScanRequest(BaseModel):
+    profile_url: HttpUrl
+    username: str = Field(min_length=1, max_length=100)
+    items: list[InstagramProfileItem] = Field(default_factory=list, max_length=5000)
+    counts: dict[str, int] = Field(default_factory=dict)
