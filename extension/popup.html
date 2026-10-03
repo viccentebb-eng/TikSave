@@ -129,6 +129,31 @@
       <button id="dezoom-install" class="wide-action secondary-action hidden" type="button">Instalar motor de imágenes</button>
     </section>
 
+    <section id="instagram-profile-card" class="picker-card hidden">
+      <div class="picker-head">
+        <div>
+          <strong id="instagram-profile-title">Perfil de Instagram</strong>
+          <small id="instagram-profile-info">Escaneando publicaciones…</small>
+        </div>
+        <button id="instagram-profile-scan" type="button">Escanear</button>
+      </div>
+
+      <div class="profile-kinds">
+        <label><input type="checkbox" data-ig-kind="post" checked><span>Fotos / publicaciones</span><strong id="ig-post-count">0</strong></label>
+        <label><input type="checkbox" data-ig-kind="reel" checked><span>Reels</span><strong id="ig-reel-count">0</strong></label>
+        <label><input type="checkbox" data-ig-kind="story" checked><span>Stories activas</span><strong id="ig-story-count">0</strong></label>
+        <label><input type="checkbox" data-ig-kind="highlight"><span>Destacadas</span><strong id="ig-highlight-count">0</strong></label>
+      </div>
+
+      <div id="instagram-profile-list" class="profile-list"></div>
+
+      <div class="profile-actions">
+        <button id="instagram-profile-download" class="primary" type="button">Descargar selección</button>
+        <button id="instagram-profile-all" type="button">Todo</button>
+        <button id="instagram-profile-open-app" type="button">Ver en TikSave</button>
+      </div>
+    </section>
+
     <section id="ai-chat-card" class="picker-card hidden">
       <div class="picker-head">
         <div>
