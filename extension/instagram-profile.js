@@ -236,6 +236,14 @@
       }
     }
 
+    for (const entry of performance.getEntriesByType("resource")) {
+      const url = absoluteUrl(entry.name);
+      if (!url) continue;
+      if (/(?:\.mp4|\.m3u8|\.mpd)(?:[?#]|$)/i.test(url)) {
+        items.push({ type: "video", url, width: 0, height: 0 });
+      }
+    }
+
     const seen = new Set();
     return items.filter((item) => {
       const key = item.type + "|" + item.url;
