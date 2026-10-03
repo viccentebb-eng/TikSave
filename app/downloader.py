@@ -78,6 +78,15 @@ def detect_collection_type(value: str) -> str | None:
         if re.fullmatch(r"/(?:channel|c|user)/[^/]+(?:/(?:videos|shorts|streams|releases))?/?", path):
             return "youtube_channel"
 
+    if host in INSTAGRAM_HOSTS or host.endswith(".instagram.com"):
+        match = re.fullmatch(r"/([A-Za-z0-9._]+)/?", path)
+        reserved = {
+            "accounts", "direct", "explore", "reels", "reel", "p", "stories",
+            "about", "developer", "legal", "web", "challenge",
+        }
+        if match and match.group(1).lower() not in reserved:
+            return "instagram_profile"
+
     return None
 
 
@@ -383,7 +392,9 @@ class TikSaveDownloader:
         url = validate_supported_url(url)
         platform = detect_platform(url)
         collection_type = detect_collection_type(url)
-        effective_playlist = bool(playlist or collection_type)
+        effective_playlist = bool(
+            playlist or collection_type in {"tiktok_profile", "youtube_channel"}
+        )
         if not platform:
             raise ValueError("Plataforma no compatible.")
 
@@ -457,7 +468,11 @@ class TikSaveDownloader:
 
         collection_type = detect_collection_type(url)
         selected = sorted({int(item) for item in selected_items or [] if int(item) > 0}) or None
-        effective_playlist = bool(playlist or selected or collection_type)
+        effective_playlist = bool(
+            playlist
+            or selected
+            or collection_type in {"tiktok_profile", "youtube_channel"}
+        )
         clip_start, clip_end = validate_clip_range(clip_start, clip_end)
 
         if effective_playlist and (clip_start is not None or clip_end is not None):
