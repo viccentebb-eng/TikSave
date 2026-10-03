@@ -823,6 +823,230 @@ async function downloadImages(payload) {
   return { count: ids.length, ids };
 }
 
+
+async function saveInstagramProfileScan(payload) {
+  return api("/api/instagram/profile-scan", {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+async function waitForTabReady(tabId, timeoutMs = 20000) {
+  try {
+    const tab = await browser.tabs.get(tabId);
+    if (tab.status === "complete") return tab;
+  } catch {}
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(listener);
+      reject(new Error("La pestaña de Instagram tardó demasiado en cargar."));
+    }, timeoutMs);
+
+    function listener(updatedId, changeInfo, tab) {
+      if (updatedId !== tabId || changeInfo.status !== "complete") return;
+      clearTimeout(timer);
+      browser.tabs.onUpdated.removeListener(listener);
+      resolve(tab);
+    }
+
+    browser.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function sendInstagramScanner(tabId, message, scriptFile) {
+  try {
+    return await browser.tabs.sendMessage(tabId, message);
+  } catch {
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: [scriptFile],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return browser.tabs.sendMessage(tabId, message);
+  }
+}
+
+async function withHiddenInstagramTab(url, callback) {
+  const tab = await browser.tabs.create({ url, active: false });
+  try {
+    await waitForTabReady(tab.id);
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    return await callback(tab.id);
+  } finally {
+    try {
+      await browser.tabs.remove(tab.id);
+    } catch {}
+  }
+}
+
+function mediaExtension(url, fallbackType) {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    const match = path.match(/\.([a-z0-9]{2,5})(?:$|\/)/i);
+    if (match && ["jpg","jpeg","png","webp","avif","gif","mp4","mov","m4v","webm"].includes(match[1])) {
+      return match[1] === "jpeg" ? "jpg" : match[1];
+    }
+  } catch {}
+  return fallbackType === "video" ? "mp4" : "jpg";
+}
+
+async function downloadInstagramDirect(url, username, category, index, type) {
+  const ext = mediaExtension(url, type);
+  const folder = safeSegment(username || "instagram");
+  const cat = safeSegment(category || "Media");
+  const filename =
+    "TikSave/Instagram/" +
+    folder +
+    "/" +
+    cat +
+    "/" +
+    String(index).padStart(4, "0") +
+    "." +
+    ext;
+
+  return browser.downloads.download({
+    url,
+    filename,
+    conflictAction: "uniquify",
+    saveAs: false,
+  });
+}
+
+async function scanInstagramPostImages(url) {
+  return withHiddenInstagramTab(url, async (tabId) => {
+    const result = await sendInstagramScanner(
+      tabId,
+      { type: "scanSocialImages" },
+      "social-images.js",
+    );
+    return Array.isArray(result) ? result : [];
+  });
+}
+
+async function scanInstagramStoryItems(url) {
+  return withHiddenInstagramTab(url, async (tabId) => {
+    const result = await sendInstagramScanner(
+      tabId,
+      { type: "scanInstagramStoryMedia" },
+      "instagram-profile.js",
+    );
+    if (!result || !result.ok) {
+      throw new Error((result && result.error) || "No pude leer esta Story.");
+    }
+    return result.items || [];
+  });
+}
+
+async function emitInstagramProfileProgress(done, total, label) {
+  try {
+    await browser.runtime.sendMessage({
+      type: "instagramProfileProgress",
+      done,
+      total,
+      label,
+    });
+  } catch {}
+}
+
+async function downloadInstagramProfile(payload) {
+  const scan = payload && payload.scan;
+  const kinds = new Set((payload && payload.kinds) || []);
+  if (!scan || !scan.ok || !Array.isArray(scan.items)) {
+    throw new Error("Primero escanea el perfil de Instagram.");
+  }
+
+  const username = scan.username || "instagram";
+  const items = scan.items.filter((item) => kinds.has(item.kind));
+  if (!items.length) {
+    throw new Error("No hay elementos de las categorías seleccionadas.");
+  }
+
+  let reels = 0;
+  let images = 0;
+  let stories = 0;
+  let failures = 0;
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    await emitInstagramProfileProgress(
+      index,
+      items.length,
+      "Procesando " + (item.label || item.kind),
+    );
+
+    try {
+      if (item.kind === "reel") {
+        await startJob("/api/download", {
+          url: item.url,
+          mode: "video",
+          quality: "best",
+          playlist: false,
+          music_metadata: false,
+        });
+        reels += 1;
+      } else if (item.kind === "post") {
+        const found = await scanInstagramPostImages(item.url);
+        const urls = [...new Set(found.map((image) => image && image.url).filter(Boolean))];
+
+        if (!urls.length && item.thumbnail) urls.push(item.thumbnail);
+
+        for (let imageIndex = 0; imageIndex < urls.length; imageIndex += 1) {
+          await downloadInstagramDirect(
+            urls[imageIndex],
+            username,
+            "Fotos",
+            images + 1,
+            "image",
+          );
+          images += 1;
+        }
+      } else if (item.kind === "story" || item.kind === "highlight") {
+        const media = await scanInstagramStoryItems(item.url);
+        for (let mediaIndex = 0; mediaIndex < media.length; mediaIndex += 1) {
+          const entry = media[mediaIndex];
+          if (!entry || !entry.url || !/^https?:\/\//i.test(entry.url)) continue;
+          await downloadInstagramDirect(
+            entry.url,
+            username,
+            item.kind === "highlight" ? "Destacadas" : "Stories",
+            stories + 1,
+            entry.type === "video" ? "video" : "image",
+          );
+          stories += 1;
+        }
+      }
+    } catch (error) {
+      failures += 1;
+      await logExtensionError("instagram-profile-item", error, {
+        username,
+        kind: item.kind,
+        url: item.url,
+      });
+    }
+  }
+
+  await emitInstagramProfileProgress(items.length, items.length, "Perfil procesado");
+
+  try {
+    await createNotification("tiksave-instagram-" + Date.now(), {
+      type: "basic",
+      iconUrl: browser.runtime.getURL("icons/tiksave.svg"),
+      title: "TikSave · Perfil de Instagram",
+      message:
+        reels +
+        " reels · " +
+        images +
+        " imágenes · " +
+        stories +
+        " archivos de Stories" +
+        (failures ? " · " + failures + " con error" : ""),
+    });
+  } catch {}
+
+  return { reels, images, stories, failures, total: items.length };
+}
+
 browser.runtime.onMessage.addListener(async (message, sender) => {
   if (message && message.type === "rememberContextTarget" && message.target && sender && sender.tab && sender.tab.id != null) {
     contextTargetsByTab.set(sender.tab.id, message.target);
@@ -881,6 +1105,12 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
 
     case "downloadMaxUrl":
       return downloadResolvedImage(message.url, message.pageUrl || null);
+
+    case "saveInstagramProfileScan":
+      return saveInstagramProfileScan(message.payload || {});
+
+    case "downloadInstagramProfile":
+      return downloadInstagramProfile(message.payload || {});
 
     case "saveAiChat":
       return saveAiChat(message.payload || {});
