@@ -96,6 +96,8 @@ function resetInspection() {
   $("media-actions").classList.add("hidden");
   $("page-images-panel").classList.add("hidden");
   $("page-images-grid").innerHTML = "";
+  $("instagram-profile-panel").classList.add("hidden");
+  $("desktop-ig-list").innerHTML = "";
   $("playlist").disabled = false;
 }
 
@@ -144,6 +146,7 @@ function capabilityIds(data) {
 function renderInspection(data) {
   const ids = capabilityIds(data);
   const isTikTokProfile = data.collection_type === "tiktok_profile";
+  const isInstagramProfile = data.collection_type === "instagram_profile";
 
   $("title").textContent = data.title || "Contenido";
   $("uploader").textContent = [
@@ -154,7 +157,9 @@ function renderInspection(data) {
   $("playlist-info").textContent = data.is_playlist
     ? isTikTokProfile
       ? `Perfil de TikTok · ${data.entry_count ?? "varios"} videos`
-      : `Colección · ${data.entry_count ?? "varios"} elementos`
+      : isInstagramProfile
+        ? `Perfil de Instagram · ${data.entry_count ?? "sin escanear"} elementos`
+        : `Colección · ${data.entry_count ?? "varios"} elementos`
     : data.kind && data.kind !== "media"
       ? data.kind === "artwork"
         ? "Obra / imagen ampliable"
@@ -194,10 +199,10 @@ function renderInspection(data) {
 
   $("quality-control").classList.toggle(
     "hidden",
-    !(ids.has("video") || ids.has("web_video")),
+    isInstagramProfile || !(ids.has("video") || ids.has("web_video")),
   );
 
-  const showPlaylist = data.platform === "youtube" || ids.has("playlist");
+  const showPlaylist = !isInstagramProfile && (data.platform === "youtube" || ids.has("playlist"));
   const playlistControl = $("playlist-control");
   const playlistInput = $("playlist");
   const playlistTitle = playlistControl.querySelector("strong");
@@ -218,19 +223,58 @@ function renderInspection(data) {
     playlistHelp.textContent = "Playlists, colecciones y canales compatibles.";
   }
 
-  $("music-control").classList.toggle("hidden", data.platform !== "youtube");
+  $("music-control").classList.toggle("hidden", data.platform !== "youtube" || isInstagramProfile);
 
   renderCapabilities(data);
+  renderInstagramProfileDesktop(data);
   renderPageImages(data.images || []);
-  renderCarousel(isTikTokProfile ? [] : (data.entries || []));
+  renderCarousel((isTikTokProfile || isInstagramProfile) ? [] : (data.entries || []));
   renderSubtitleTracks(data.subtitles || data.subtitle_tracks || [], data);
 }
+function renderInstagramProfileDesktop(data) {
+  const panel = $("instagram-profile-panel");
+  if (data.collection_type !== "instagram_profile") {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  const profile = data.instagram_profile || {};
+  const counts = profile.counts || {};
+  const items = profile.items || [];
+
+  panel.classList.remove("hidden");
+  $("instagram-profile-name").textContent = "@" + (profile.username || data.uploader || "instagram");
+  $("desktop-ig-posts").textContent = String(counts.posts || 0);
+  $("desktop-ig-reels").textContent = String(counts.reels || 0);
+  $("desktop-ig-stories").textContent = String(counts.stories || 0);
+  $("desktop-ig-highlights").textContent = String(counts.highlights || 0);
+
+  $("instagram-profile-status").textContent = profile.needs_browser_scan
+    ? "Abre este perfil en Firefox y abre la extensión TikSave. La extensión recorrerá el perfil, lo enumerará y enviará el resultado aquí."
+    : `Escaneo de Firefox recibido · ${counts.total || items.length} elementos enumerados. Las descargas masivas se ejecutan desde la extensión para usar tu sesión de Instagram.`;
+
+  $("desktop-ig-list").innerHTML = items.length
+    ? items.slice(0, 300).map((item) => `
+        <div class="profile-desktop-item">
+          ${item.thumbnail
+            ? `<img src="${escapeHtml(item.thumbnail)}" alt="" loading="lazy">`
+            : '<div class="thumb-placeholder"></div>'}
+          <div>
+            <strong>${item.index}. ${escapeHtml(item.label || item.kind || "Instagram")}</strong>
+            <small>${escapeHtml(shortUrl(item.url || ""))}</small>
+          </div>
+          <em>${escapeHtml(item.kind || "")}</em>
+        </div>
+      `).join("")
+    : '<div class="capability-empty">Todavía no hay elementos enumerados desde Firefox.</div>';
+}
+
 function renderCapabilities(data) {
   const panel = $("capabilities-panel");
   const box = $("capability-buttons");
   const notes = $("analysis-notes");
   const generic = (data.capabilities || []).filter((cap) =>
-    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom", "collection_subtitles"].includes(cap.id)
+    ["web_video", "web_audio", "images", "image_download", "image_max", "dezoom", "collection_subtitles", "instagram_profile", "instagram_profile_scan"].includes(cap.id)
   );
 
   const labels = {
@@ -241,6 +285,8 @@ function renderCapabilities(data) {
     image_max: "Original / máxima resolución",
     dezoom: "Reconstruir mosaicos",
     collection_subtitles: "Todos los subtítulos del perfil",
+    instagram_profile: "Ver perfil enumerado",
+    instagram_profile_scan: "Escanear perfil con Firefox",
   };
 
   if (!generic.length && !(data.capabilities || []).length) {
@@ -480,6 +526,20 @@ $("capability-buttons").addEventListener("click", async (event) => {
 
     if (action === "collection_subtitles") {
       $("subtitle-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+
+    if (action === "instagram_profile") {
+      $("instagram-profile-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+
+    if (action === "instagram_profile_scan") {
+      showMessage(
+        "Abre este perfil en Firefox y abre la extensión TikSave. Ahí aparecerá el escáner de perfil; cuando termine, vuelve a Analizar aquí.",
+        "ok",
+      );
+      $("instagram-profile-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
 
