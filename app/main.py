@@ -21,12 +21,13 @@ from app.dezoom import install as install_dezoomify, status as dezoom_status
 from app.chat_export import save_chat_markdown
 from app.native_image import download as download_native_image, resolve as resolve_native_image, status as native_image_status
 from app.image_tools import download_images as download_image_batch
+from app.instagram_profiles import get_scan as get_instagram_profile_scan, put_scan as put_instagram_profile_scan
 from app.downloader import (
     TikSaveDownloader,
     clean_error,
     validate_supported_url,
 )
-from app.models import BrowserMediaRequest, ChatExportRequest, DezoomRequest, DiagnosticEventRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, MaxUrlResolveRequest, NativeImageRequest
+from app.models import BrowserMediaRequest, ChatExportRequest, DezoomRequest, DiagnosticEventRequest, DownloadRequest, ImageBatchDownloadRequest, InspectRequest, InstagramProfileScanRequest, MaxUrlResolveRequest, NativeImageRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -132,6 +133,28 @@ def open_chat_folder() -> dict:
             detail=f"No se pudo abrir la carpeta de chats: {exc}",
         ) from exc
     return {"ok": True, "path": str(folder)}
+
+
+@app.post("/api/instagram/profile-scan")
+def save_instagram_profile_scan(payload: InstagramProfileScanRequest) -> dict:
+    value = put_instagram_profile_scan(payload.model_dump(mode="json"))
+    write_event(
+        "instagram-profile",
+        "scan-saved",
+        message=value["profile_url"],
+        details={
+            "username": value.get("username"),
+            "counts": value.get("counts") or {},
+            "items": len(value.get("items") or []),
+        },
+    )
+    return {"ok": True, "scan": value}
+
+
+@app.get("/api/instagram/profile-scan")
+def read_instagram_profile_scan(url: str) -> dict:
+    value = get_instagram_profile_scan(url)
+    return {"ok": True, "scan": value}
 
 
 @app.post("/api/analyze")
