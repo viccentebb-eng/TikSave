@@ -1006,6 +1006,18 @@ async function downloadInstagramProfile(payload) {
         for (let mediaIndex = 0; mediaIndex < media.length; mediaIndex += 1) {
           const entry = media[mediaIndex];
           if (!entry || !entry.url || !/^https?:\/\//i.test(entry.url)) continue;
+
+          if (entry.type === "video" && /(?:\.m3u8|\.mpd)(?:[?#]|$)/i.test(entry.url)) {
+            await startJob("/api/browser-media", {
+              page_url: item.url,
+              media_url: entry.url,
+              mode: "video",
+              quality: "best",
+            });
+            stories += 1;
+            continue;
+          }
+
           await downloadInstagramDirect(
             entry.url,
             username,
