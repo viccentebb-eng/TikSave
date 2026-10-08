@@ -22,6 +22,7 @@ from app.jobs import JobCancelled, JobStore
 from app.security import SUPPORTED_SITES, site_for_url, validate_media_url
 from urllib.parse import urlparse
 from app.textutils import build_notes, subtitles_to_text
+from app.convert import CHAT_HOSTS
 
 SUPPORTED_SITE_NAMES = set(SUPPORTED_SITES)
 MODES = {"video", "mp3", "audio", "transcript", "cover"}
@@ -254,6 +255,10 @@ class Downloader:
         url, site = self._check_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
+        host = (urlparse(url).hostname or "").lower()
+        if any(host == h or host.endswith("." + h) for h in CHAT_HOSTS):
+            raise ValueError("Esto es una conversación de ChatGPT/Gemini/Claude: no se descarga desde aquí. Abre la "
+                             "conversación en tu navegador, pulsa el icono de TikSave y elige «Capturar esta página».")
         # Si ya se esta bajando lo mismo, no se crea otro trabajo: dos descargas al mismo archivo se pisan.
         for active in self.jobs.list(limit=200):
             if active["kind"] == "download" and active["url"] == url and active["mode"] == mode \

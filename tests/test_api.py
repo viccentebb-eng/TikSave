@@ -177,3 +177,9 @@ def test_duplicate_download_reuses_active_job(env, monkeypatch):
     again = c.post("/api/download", json=body).json()
     assert again["id"] == first["id"]
     assert c.get("/api/jobs").json()["jobs"].__len__() == 1
+
+
+def test_chat_links_are_not_queued_as_downloads(env):
+    c, _, _ = env
+    r = c.post("/api/download", json={"url": "https://chatgpt.com/c/abc", "mode": "transcript"})
+    assert r.status_code == 400 and "Capturar esta página" in r.json()["detail"]
