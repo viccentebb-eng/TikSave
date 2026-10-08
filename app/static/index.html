@@ -52,7 +52,10 @@
             <h2>Pega los enlaces</h2>
             <button id="paste" class="btn ghost small"><svg class="ic"><use href="#i-clipboard"/></svg>Pegar</button>
           </div>
-          <textarea id="urls" rows="3" spellcheck="false" placeholder="https://www.tiktok.com/@usuario/video/…&#10;Pega uno o varios enlaces (TikTok, YouTube, Instagram, X, Vimeo… o cualquier video público)."></textarea>
+          <div id="dropzone" class="dropzone">
+            <textarea id="urls" rows="3" spellcheck="false" aria-label="Enlaces a descargar" placeholder="Pega aquí un enlace, o arrástralo a cualquier parte de la pantalla.&#10;Varios enlaces: uno por línea. Ctrl + Enter para descargar."></textarea>
+            <div class="drop-hint"><svg class="ic"><use href="#i-download"/></svg><span>Suelta el enlace aquí</span></div>
+          </div>
           <div id="url-hint" class="hint"></div>
 
           <div id="profile-box" class="notice hidden">
@@ -148,10 +151,19 @@
         <div class="card">
           <div class="lib-bar">
             <input id="lib-q" type="search" placeholder="Buscar en lo guardado…">
+            <select id="lib-sort" aria-label="Ordenar" class="sort">
+              <option value="recent">Más recientes</option><option value="name">Nombre (A–Z)</option><option value="size">Más pesados</option>
+            </select>
+            <button id="lib-select" class="btn ghost small">Seleccionar</button>
             <div class="seg" id="lib-filter">
               <button class="active" data-f="all">Todo</button><button data-f="video">Video</button><button data-f="audio">Audio</button><button data-f="text">Texto</button><button data-f="site">Sitios</button>
             </div>
             <button id="lib-open" class="btn ghost small"><svg class="ic"><use href="#i-folder"/></svg>Abrir carpeta</button>
+          </div>
+          <div id="lib-bulk" class="bulk hidden">
+            <span id="lib-sel-count">0 seleccionados</span>
+            <button id="lib-del-sel" class="btn small danger"><svg class="ic"><use href="#i-trash"/></svg>Eliminar seleccionados</button>
+            <button id="lib-sel-done" class="btn small ghost">Listo</button>
           </div>
           <div id="lib-grid" class="lib-grid"></div>
           <div id="lib-empty" class="empty hidden">Aún no hay nada guardado. Lo que descargues aparecerá aquí.</div>
@@ -223,6 +235,7 @@
     </div>
   </div>
 
+  <div id="drop-overlay" class="drop-overlay hidden" aria-hidden="true"><div>Suelta el enlace para descargarlo</div></div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>
 </body>

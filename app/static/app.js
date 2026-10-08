@@ -230,6 +230,31 @@ async function loadPreview(url) {
 }
 
 urlsEl.addEventListener("input", updateDownloadUi);
+urlsEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#go").click(); }
+});
+
+// Arrastrar y soltar enlaces en cualquier parte de la pantalla
+let dragDepth = 0;
+const dropText = (dt) => (dt.getData("text/uri-list") || dt.getData("text/plain") || "").split(/\r?\n/).filter((l) => !l.startsWith("#")).join("\n");
+document.addEventListener("dragenter", (e) => {
+  if (!e.dataTransfer || ![...e.dataTransfer.types].some((t) => t === "text/plain" || t === "text/uri-list")) return;
+  e.preventDefault(); dragDepth++;
+  $("#drop-overlay").classList.remove("hidden");
+  $("#dropzone").classList.toggle("over", showingDownload() && true);
+});
+function showingDownload() { return !$("#tab-download").classList.contains("hidden"); }
+document.addEventListener("dragover", (e) => { if (dragDepth) e.preventDefault(); });
+document.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) { $("#drop-overlay").classList.add("hidden"); $("#dropzone").classList.remove("over"); } });
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; $("#drop-overlay").classList.add("hidden"); $("#dropzone").classList.remove("over");
+  const text = dropText(e.dataTransfer || { getData: () => "" });
+  if (!extractUrls(text).length) return;
+  showTab("download");
+  urlsEl.value = (urlsEl.value.trim() ? urlsEl.value.trim() + "\n" : "") + text.trim();
+  updateDownloadUi();
+  toast("Enlace añadido. Revisa el formato y pulsa Descargar.", "ok");
+});
 $$('input[name="mode"], #x-transcript, #x-notes, #x-cover').forEach((el) => el.addEventListener("change", updateDownloadUi));
 
 $("#trim-on").addEventListener("change", () => $("#trim-ui").classList.toggle("hidden", !$("#trim-on").checked));
@@ -330,6 +355,7 @@ function jobCard(job) {
   const card = h("div", { class: "job", "data-id": job.id });
   card.append(
     h("div", { class: "job-top" },
+      h("img", { class: "job-thumb hidden", alt: "", referrerpolicy: "no-referrer", loading: "lazy" }),
       h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : job.kind === "record" ? "play" : "download")),
       h("div", { class: "job-main" }, h("div", { class: "job-title" }), h("div", { class: "job-sub" }))),
     h("div", { class: "track" }, h("div", { class: "bar" })),
@@ -343,7 +369,12 @@ function jobCard(job) {
 function updateJobCard(card, job) {
   card.className = `job ${job.status}`;
   $(".job-title", card).textContent = job.title || job.url;
-  $(".job-title", card).title = job.url;
+  $(".job-title", card).title = job.title || job.url;
+  const thumb = $(".job-thumb", card), iconEl = $(".job-ic", card);
+  const showThumb = !!job.thumbnail && /^https:/.test(job.thumbnail);
+  if (showThumb && thumb.getAttribute("src") !== job.thumbnail) thumb.src = job.thumbnail;
+  thumb.classList.toggle("hidden", !showThumb);
+  iconEl.classList.toggle("hidden", showThumb);
   const extras = [];
   if (job.options?.transcript && job.mode !== "transcript") extras.push("texto");
   if (job.options?.notes) extras.push("ficha");
@@ -381,15 +412,22 @@ function jobAsItem(job) {
   return { name: job.title || job.url, files: job.files.map((f) => ({ path: relPath(f), name: norm(f).split("/").pop(), kind: kindOf(f) })) };
 }
 
+const DONE_SHOWN = 4;
+let showAllDone = false;
 function syncJobs(jobs) {
   lastJobs = jobs;
   const ids = new Set(jobs.map((j) => j.id));
   for (const [id, el] of jobEls) if (!ids.has(id)) { el.remove(); jobEls.delete(id); }
   const list = $("#q-list");
+  let finishedSeen = 0, hiddenCount = 0;
   jobs.forEach((job, index) => {
     let el = jobEls.get(job.id);
     if (!el) { el = jobCard(job); jobEls.set(job.id, el); }
     updateJobCard(el, job);
+    const finished = !ACTIVE.has(job.status);
+    const collapsed = finished && ++finishedSeen > DONE_SHOWN && !showAllDone;
+    el.classList.toggle("hidden", collapsed);
+    if (collapsed) hiddenCount++;
     if (list.children[index] !== el) list.insertBefore(el, list.children[index] || null);
     const before = prevStatus.get(job.id);
     if (before && ACTIVE.has(before) && !ACTIVE.has(job.status)) {
@@ -398,6 +436,10 @@ function syncJobs(jobs) {
     }
     prevStatus.set(job.id, job.status);
   });
+  let more = $("#q-more");
+  if (!more) { more = h("button", { id: "q-more", class: "btn ghost small q-more", onclick: () => { showAllDone = !showAllDone; syncJobs(lastJobs); } }); list.after(more); }
+  more.classList.toggle("hidden", !hiddenCount && !(showAllDone && finishedSeen > DONE_SHOWN));
+  more.textContent = showAllDone ? "Mostrar menos" : `Ver ${hiddenCount} anteriores`;
   const active = jobs.filter((j) => ACTIVE.has(j.status)).length;
   $("#q-count").textContent = active; $("#q-count").classList.toggle("hidden", !active);
   $("#q-empty").classList.toggle("hidden", jobs.length > 0);
@@ -424,9 +466,21 @@ const KIND_LABEL = { video: "Video", audio: "Audio", image: "Imagen", text: "Tex
 async function loadLibrary() {
   try { libItems = (await api("/api/library")).items; renderLibrary(); } catch (err) { toast(err.message, "error"); }
 }
+let libSort = "recent";
+let selecting = false;
+const selected = new Set();
+const SORTERS = {
+  recent: (a, b) => b.modified - a.modified,
+  name: (a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }),
+  size: (a, b) => b.size - a.size,
+};
+function videoFile(item) { return item.files.find((f) => f.kind === "video"); }
+
 function renderLibrary() {
   const q = $("#lib-q").value.trim().toLowerCase();
-  const items = libItems.filter((i) => (libFilter === "all" || i.type === libFilter) && (!q || i.name.toLowerCase().includes(q)));
+  const items = libItems
+    .filter((i) => (libFilter === "all" || i.type === libFilter) && (!q || i.name.toLowerCase().includes(q)))
+    .sort(SORTERS[libSort]);
   const grid = $("#lib-grid"); grid.replaceChildren();
   $("#lib-empty").classList.toggle("hidden", items.length > 0);
   for (const item of items) {
@@ -434,11 +488,59 @@ function renderLibrary() {
     if (item.cover) thumb.prepend(h("img", { src: `/files/${encPath(norm(item.cover))}`, alt: "", loading: "lazy" }));
     else if (item.snippet) { thumb.classList.add("has-snippet"); thumb.prepend(h("div", { class: "lib-snippet" }, item.snippet)); }
     else thumb.prepend(icon(item.type === "site" ? "globe" : "file"));
-    grid.append(h("button", { class: "lib-card", title: item.name, onclick: () => openItem(item) }, thumb,
+    const check = h("span", { class: "check", "aria-hidden": "true" }, icon("check"));
+    const card = h("button", { class: `lib-card${selected.has(item.id) ? " sel" : ""}`, title: item.name,
+      "aria-pressed": selecting ? String(selected.has(item.id)) : null,
+      onclick: () => (selecting ? toggleSelect(item.id) : openItem(item)) }, thumb, check,
       h("div", { class: "lib-info" }, h("div", { class: "lib-name" }, item.name),
-        h("div", { class: "lib-meta" }, [item.platform && item.platform !== "Sitios" ? item.platform : null, fmtSize(item.size), fmtDate(item.modified)].filter(Boolean).join(" · ")))));
+        h("div", { class: "lib-meta" }, [item.platform && item.platform !== "Sitios" ? item.platform : null, fmtSize(item.size), fmtDate(item.modified)].filter(Boolean).join(" · "))));
+    const vf = videoFile(item);
+    if (vf && !item.cover) attachPreview(card, thumb, `/files/${encPath(norm(vf.path))}`);
+    grid.append(card);
   }
+  updateBulk();
 }
+
+// Vista previa al pasar el mouse: el video solo se carga mientras el cursor esta encima.
+function attachPreview(card, thumb, src) {
+  card.addEventListener("mouseenter", () => {
+    if (selecting || thumb.querySelector("video")) return;
+    const v = h("video", { class: "lib-preview", src, muted: true, playsinline: true, loop: true, preload: "auto" });
+    thumb.append(v);
+    v.play().catch(() => {});
+  });
+  card.addEventListener("mouseleave", () => { const v = thumb.querySelector("video"); if (v) { v.pause(); v.remove(); } });
+}
+
+function toggleSelect(id) {
+  selected.has(id) ? selected.delete(id) : selected.add(id);
+  renderLibrary();
+}
+function setSelecting(on) {
+  selecting = on;
+  if (!on) selected.clear();
+  document.body.classList.toggle("selecting", on);
+  $("#lib-select").textContent = on ? "Cancelar selección" : "Seleccionar";
+  renderLibrary();
+}
+function updateBulk() {
+  const n = selected.size;
+  $("#lib-bulk").classList.toggle("hidden", !selecting);
+  $("#lib-sel-count").textContent = `${n} seleccionado${n === 1 ? "" : "s"}`;
+  $("#lib-del-sel").disabled = n === 0;
+}
+$("#lib-select").addEventListener("click", () => setSelecting(!selecting));
+$("#lib-sel-done").addEventListener("click", () => setSelecting(false));
+$("#lib-sort").addEventListener("change", (e) => { libSort = e.target.value; renderLibrary(); });
+$("#lib-del-sel").addEventListener("click", async () => {
+  const chosen = libItems.filter((i) => selected.has(i.id));
+  if (!chosen.length || !confirm(`¿Eliminar ${chosen.length} elemento${chosen.length === 1 ? "" : "s"} y todos sus archivos? No se puede deshacer.`)) return;
+  try {
+    const res = await post("/api/library/delete", { paths: chosen.flatMap((i) => i.files.map((f) => norm(f.path))) });
+    toast(`${res.deleted} archivo${res.deleted === 1 ? "" : "s"} eliminado${res.deleted === 1 ? "" : "s"}.`, "ok");
+    selected.clear(); setSelecting(false); loadLibrary();
+  } catch (err) { toast(err.message, "error"); }
+});
 $("#lib-q").addEventListener("input", renderLibrary);
 $("#lib-filter").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -492,6 +594,32 @@ async function showFile(f) {
     } catch { body.append(h("p", { class: "muted" }, "No se pudo leer el archivo.")); }
   }
 }
+// Muestra 12 fotogramas repartidos a lo largo del video (solo archivos locales: no hay CORS).
+async function paintFrames(media, strip) {
+  const dur = media.duration;
+  if (!isFinite(dur) || dur <= 0 || media.tagName !== "VIDEO") return;
+  const was = media.currentTime, paused = media.paused;
+  const canvas = document.createElement("canvas");
+  canvas.width = 160; canvas.height = Math.round(160 * (media.videoHeight / Math.max(1, media.videoWidth)) || 90);
+  const ctx = canvas.getContext("2d");
+  const seekTo = (t) => new Promise((res) => {
+    const done = () => { clearTimeout(timer); media.removeEventListener("seeked", done); res(); };
+    const timer = setTimeout(done, 1500); // si el navegador no dispara "seeked", no bloquear
+    media.addEventListener("seeked", done);
+    media.currentTime = t;
+  });
+  try {
+    media.pause();
+    for (let i = 0; i < 12; i++) {
+      await seekTo(Math.min(dur - 0.05, (dur * (i + 0.5)) / 12));
+      if (!strip.isConnected) return;
+      ctx.drawImage(media, 0, 0, canvas.width, canvas.height);
+      strip.append(h("img", { src: canvas.toDataURL("image/jpeg", 0.6), alt: "" }));
+    }
+  } catch { /* sin fotogramas: la barra funciona igual */ }
+  finally { if (isFinite(was)) media.currentTime = was; if (!paused) media.play().catch(() => {}); }
+}
+
 function closeCutter() {
   $("#m-trim").classList.add("hidden"); $("#m-trim").replaceChildren();
 }
@@ -502,6 +630,7 @@ function openCutter() {
   if (!media || !modalFile) return;
   const build = () => {
     const holder = h("div");
+    const strip = h("div", { class: "rng-frames", "aria-hidden": "true" });
     const range = makeRange(holder, {
       duration: media.duration,
       onScrub: (t, which) => { media.pause(); media.currentTime = which === "end" ? Math.max(0, t - 0.1) : t; },
@@ -527,6 +656,9 @@ function openCutter() {
       h("label", { class: "switch" }, precise, h("span", {}, "Corte exacto ", h("small", {}, "(más lento)"))),
       h("button", { class: "btn small primary", onclick: save }, icon("scissors"), "Guardar recorte")));
     box.classList.remove("hidden");
+    const track = holder.querySelector(".rng-track");
+    if (track) track.prepend(strip);
+    paintFrames(media, strip);
   };
   if (media.readyState >= 1 && isFinite(media.duration)) build(); else media.addEventListener("loadedmetadata", build, { once: true });
 }
