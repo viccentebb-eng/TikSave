@@ -96,6 +96,17 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     }
 }
 
+# YouTube necesita un interprete de JavaScript para leer sus videos (yt-dlp usa Deno, o Node si no hay Deno).
+if (-not (Get-Command deno -ErrorAction SilentlyContinue) -and -not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "Instalando Deno (necesario para YouTube)..." -ForegroundColor Cyan
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id DenoLand.Deno -e --accept-package-agreements --accept-source-agreements
+        Write-Host "Si Deno acaba de instalarse, cierra y vuelve a abrir PowerShell." -ForegroundColor Yellow
+    } else {
+        Write-Host "Instala Deno desde https://deno.land (necesario para YouTube)." -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "Instalacion terminada." -ForegroundColor Green
 Write-Host "Ejecuta: .\scripts\run-windows.ps1" -ForegroundColor Green

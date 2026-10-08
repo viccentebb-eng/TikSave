@@ -1,39 +1,234 @@
+// Funciona en Firefox (browser.*) y Chrome/Edge (chrome.*).
+const ext = globalThis.browser ?? globalThis.chrome;
 const API = "http://127.0.0.1:8173";
-const urlEl = document.getElementById("url");
-const message = document.getElementById("message");
+const CHAT_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai"];
+const $ = (id) => document.getElementById(id);
 let currentUrl = "";
+let currentTabId = null;
+let sites = {};
 
-async function getCurrentTab(){ const tabs = await browser.tabs.query({active:true,currentWindow:true}); return tabs[0]; }
-function validTikTok(url){ try{ const parsed=new URL(url); return parsed.hostname==="tiktok.com" || parsed.hostname.endsWith(".tiktok.com"); }catch{return false;} }
-function say(text,type=""){ message.textContent=text; message.className=type; }
-async function ping(){ const res=await fetch(`${API}/api/health`); if(!res.ok) throw new Error("TikSave Local no está disponible."); }
+function say(text, type = "") { $("message").textContent = text; $("message").className = type; }
 
-async function init(){
-  try{
-    const tab=await getCurrentTab();
-    currentUrl=tab?.url || "";
-    urlEl.textContent=currentUrl || "No se pudo leer la pestaña actual.";
-    if(!validTikTok(currentUrl)){
-      document.querySelectorAll("[data-mode]").forEach(b=>b.disabled=true);
-      say("Abre un TikTok público y vuelve a pulsar la extensión.","error");
-      return;
+function siteFor(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    for (const [name, domains] of Object.entries(sites)) {
+      if (domains.some((d) => host === d || host.endsWith("." + d))) return name;
     }
-    await ping();
-    say("TikSave Local está listo.","ok");
-  }catch{ say("Abre TikSave Local primero.","error"); }
+  } catch { /* url no valida */ }
+  return null;
 }
 
-document.querySelectorAll("[data-mode]").forEach(button=>{
-  button.addEventListener("click",async()=>{
-    try{
-      await ping();
-      const res=await fetch(`${API}/api/download`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:currentUrl,mode:button.dataset.mode})});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.detail || "No se pudo iniciar la descarga.");
-      say("Descarga enviada a TikSave.","ok");
-    }catch(err){ say(err.message || "No se pudo conectar.","error"); }
+async function call(path, body) {
+  const res = await fetch(API + path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Solicitud rechazada.");
+  return data;
+}
 
-document.getElementById("open").addEventListener("click",()=>browser.tabs.create({url:API}));
+async function track(jobId) {
+  $("bar").classList.remove("hidden");
+  for (let i = 0; i < 600; i++) {
+    const job = await call(`/api/jobs/${jobId}`);
+    $("fill").style.width = `${job.status === "done" ? 100 : job.progress || 0}%`;
+    if (job.status === "done") { say("Listo. Guardado en tu carpeta de TikSave.", "ok"); return; }
+    if (job.status === "error") { say(job.error || "Falló la descarga.", "error"); return; }
+    if (job.status === "cancelled") { say("Cancelado.", ""); return; }
+    say(job.stage || "Trabajando…");
+    await new Promise((r) => setTimeout(r, 900));
+  }
+}
+
+async function send(path, body) {
+  try {
+    const job = await call(path, body);
+    say("Enviado a TikSave…");
+    await track(job.id);
+  } catch (err) { say(err.message || "No se pudo conectar con TikSave.", "error"); }
+}
+
+async function init() {
+  try {
+    const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+    currentUrl = tab?.url || "";
+    currentTabId = tab?.id ?? null;
+    $("url").textContent = tab?.title || currentUrl || "No se pudo leer la pestaña actual.";
+    const health = await call("/api/health");
+    sites = health.sites;
+    const site = siteFor(currentUrl);
+    const isWeb = /^https?:/i.test(currentUrl);
+    const isChat = CHAT_HOSTS.some((d) => { try { return new URL(currentUrl).hostname.endsWith(d); } catch { return false; } });
+    if (isChat) { $("dl").classList.add("hidden"); say("Conversación detectada: usa Capturar esta página para guardarla con tu sesión.", "ok"); }
+    if (site) { $("site").textContent = site; $("dl").classList.remove("hidden"); }
+    else {
+      $("site").textContent = "Página web";
+      if (isWeb && health.allow_other_sites) $("dl").classList.remove("hidden");
+    }
+    await initFloating(isWeb);
+    if (/^https?:/i.test(currentUrl)) $("cap").classList.remove("hidden");
+    if (!site && !/^https?:/i.test(currentUrl)) say("Abre un video o una página web y vuelve a pulsar.", "error");
+  } catch { say("TikSave no está abierto. Ejecuta run-windows.bat primero.", "error"); }
+}
+
+const pageTitle = () => $("url").textContent;
+// En sitios sin extractor, la pagina no sirve: se usa el stream que cargo (si lo hay).
+async function resolveUrl(url) {
+  if (siteFor(url) || url !== currentUrl || currentTabId == null) return url;
+  try {
+    const res = await ext.runtime.sendMessage({ type: "page-target", tabId: currentTabId });
+    return res?.url || url;
+  } catch { return url; }
+}
+// Las descargas pasan por el fondo: el adjunta tu sesion (cookies) y resuelve el enlace correcto.
+async function sendDownload(body) {
+  try {
+    body = { ...body, url: await resolveUrl(body.url) };
+    const res = await ext.runtime.sendMessage({ type: "save", explicitUrl: body.url, mode: body.mode, title: body.title,
+      referer: body.referer, pageUrl: currentUrl, tabId: currentTabId });
+    if (!res || res.error) throw new Error(res?.error || "Sin respuesta");
+    say("Enviado a TikSave…");
+    await track(res.job.id);
+  } catch (err) { say(err.message || "No se pudo conectar con TikSave.", "error"); }
+}
+document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => sendDownload({
+  url: currentUrl, mode: b.dataset.mode, title: siteFor(currentUrl) ? undefined : pageTitle(),
+  referer: siteFor(currentUrl) ? undefined : currentUrl })));
+document.querySelector("[data-kit]").addEventListener("click", () => sendDownload({ url: currentUrl, mode: "transcript" }));
+// Se ejecuta DENTRO de la pagina (con tu sesion). Las conversaciones (ChatGPT, Gemini) se cargan
+// mientras se desplaza la pagina, asi que se recorren y se guarda cada mensaje al pasar por el.
+async function grabPage() {
+  const MAX_IMG = 3 * 1024 * 1024, MAX_TOTAL = 25 * 1024 * 1024, MAX_COUNT = 80;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const toData = (blob) => new Promise((res) => {
+    const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob);
+  });
+  let total = 0, count = 0;
+  const imgCache = new Map();
+  async function inlineImg(src) {
+    if (!/^https?:/.test(src || "")) return null;
+    if (imgCache.has(src)) return imgCache.get(src);
+    let data = null;
+    try {
+      if (total < MAX_TOTAL && count < MAX_COUNT) {
+        const res = await fetch(src, { credentials: "include" });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.type.startsWith("image/") && blob.size <= MAX_IMG && total + blob.size <= MAX_TOTAL) {
+            total += blob.size; count++; data = await toData(blob);
+          }
+        }
+      }
+    } catch { /* imagen no accesible: queda el enlace original */ }
+    imgCache.set(src, data);
+    return data;
+  }
+
+  const CHAT_SEL = "[data-message-author-role], user-query, model-response";
+  if (document.querySelector(CHAT_SEL)) {
+    const scroller = [...document.querySelectorAll("main, div, section")]
+      .filter((el) => el.scrollHeight > el.clientHeight + 80 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))
+      .sort((x, y) => y.scrollHeight - x.scrollHeight)[0] || null;
+    const seen = new Map();
+    const collect = async () => {
+      for (const node of document.querySelectorAll(CHAT_SEL)) {
+        const key = node.getAttribute("data-message-id") || node.innerText.slice(0, 160);
+        if (seen.has(key)) continue;
+        const clone = node.cloneNode(true);
+        const live = [...node.querySelectorAll("img")], copies = [...clone.querySelectorAll("img")];
+        for (let i = 0; i < live.length; i++) {
+          const data = await inlineImg(live[i].currentSrc || live[i].src);
+          if (data && copies[i]) { copies[i].setAttribute("src", data); copies[i].removeAttribute("srcset"); }
+        }
+        seen.set(key, clone.outerHTML);
+      }
+    };
+    const top = scroller ? scroller.scrollTop : window.scrollY;
+    if (scroller) scroller.scrollTop = 0; else window.scrollTo(0, 0);
+    await sleep(600);
+    for (let step = 0; step < 300; step++) {
+      await collect();
+      const el = scroller || document.documentElement;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 6) { await sleep(500); await collect(); break; }
+      if (scroller) scroller.scrollTop += scroller.clientHeight * 0.8; else window.scrollBy(0, innerHeight * 0.8);
+      await sleep(400);
+    }
+    if (scroller) scroller.scrollTop = top; else window.scrollTo(0, top);
+    const body = [...seen.values()].join("\n");
+    return {
+      html: `<!doctype html><html lang="${document.documentElement.lang || "es"}"><head><meta charset="utf-8"><title>${document.title.replace(/</g, "")}</title></head><body><main>${body}</main></body></html>`,
+      url: location.href, title: document.title,
+    };
+  }
+
+  // Pagina normal: una sola foto del DOM con las imagenes incrustadas.
+  const imgs = [...document.querySelectorAll("img")].filter((i) => /^https?:/.test(i.currentSrc || i.src)).slice(0, MAX_COUNT);
+  const datas = await Promise.all(imgs.map((img) => inlineImg(img.currentSrc || img.src)));
+  const clone = document.documentElement.cloneNode(true);
+  const cloned = clone.querySelectorAll("img");
+  imgs.forEach((img, i) => {
+    const data = datas[i];
+    const all = [...document.querySelectorAll("img")];
+    const idx = all.indexOf(img);
+    if (data && cloned[idx]) { cloned[idx].setAttribute("src", data); cloned[idx].removeAttribute("srcset"); }
+  });
+  return { html: "<!doctype html>" + clone.outerHTML, url: location.href, title: document.title };
+}
+
+$("capture").addEventListener("click", async () => {
+  const formats = { markdown: $("f-md").checked, docx: $("f-docx").checked, pdf: $("f-pdf").checked, html: $("f-html").checked };
+  if (!Object.values(formats).some(Boolean)) { say("Elige al menos un formato.", "error"); return; }
+  $("capture").disabled = true;
+  say("Leyendo la página (si es una conversación, se desplaza para cargarla toda)…");
+  const media = $("f-media").checked;
+  let body = { url: currentUrl, ...formats, media, files: media };
+  try {
+    const [{ result }] = await ext.scripting.executeScript({ target: { tabId: currentTabId }, func: grabPage });
+    if (result?.html) body = { ...body, url: result.url, html_source: result.html };
+  } catch { say("No pude leer la página desde el navegador; intento descargarla directamente…"); }
+  await send("/api/capture", body);
+  $("capture").disabled = false;
+});
+$("open").addEventListener("click", () => ext.tabs.create({ url: API }));
+async function initFloating(isWeb) {
+  if (!isWeb) return;
+  const granted = true; // el acceso a los sitios viene en el manifiesto: nada que pedir
+  $("perm").classList.add("hidden");
+  $("float-row").classList.toggle("hidden", !granted);
+  const stored = await ext.storage.local.get({ floatEnabled: true, useCookies: true });
+  $("float-on").checked = stored.floatEnabled !== false;
+  $("cookie-on").checked = stored.useCookies !== false;
+  $("cookie-row").classList.remove("hidden");
+  if (granted) await showFound();
+}
+$("grant").addEventListener("click", async () => {
+  try {
+    const ok = await ext.permissions.request({ origins: ["<all_urls>"] });
+    if (ok) { await ext.runtime.sendMessage({ type: "register" }); say("Listo: recarga la página para ver el botón sobre los videos.", "ok"); await initFloating(true); }
+    else say("Sin ese permiso no puedo mostrar el botón flotante.", "error");
+  } catch (err) { say(err.message || "No se pudo pedir el permiso.", "error"); }
+});
+$("cookie-on").addEventListener("change", () => ext.storage.local.set({ useCookies: $("cookie-on").checked }));
+$("float-on").addEventListener("change", () => ext.storage.local.set({ floatEnabled: $("float-on").checked }));
+
+async function showFound() {
+  if (siteFor(currentUrl) || currentTabId == null) return; // en sitios conocidos basta con la URL de la pagina
+  const res = await ext.runtime.sendMessage({ type: "media", tabId: currentTabId });
+  const list = (res?.media || []).slice().reverse();
+  $("found").classList.toggle("hidden", !list.length);
+  const box = $("found-list"); box.replaceChildren();
+  for (const item of list) {
+    const row = document.createElement("div"); row.className = "found-item";
+    const name = document.createElement("span");
+    let host = ""; try { host = new URL(item.url).pathname.split("/").pop() || new URL(item.url).hostname; } catch { /* ignorar */ }
+    name.textContent = `${item.kind === "manifest" ? "Stream" : "Video"} · ${host.slice(0, 28)}${item.size ? ` · ${(item.size / 1e6).toFixed(1)} MB` : ""}`;
+    name.title = item.url;
+    const mk = (text, mode) => { const b = document.createElement("button"); b.textContent = text;
+      b.addEventListener("click", () => sendDownload({ url: item.url, mode, referer: currentUrl, title: pageTitle() })); return b; };
+    row.append(name, mk("MP4", "video"), mk("MP3", "mp3"));
+    box.append(row);
+  }
+}
+
 init();

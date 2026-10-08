@@ -4,57 +4,242 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <title>TikSave Local</title>
+  <title>TikSave</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fe2c55'/%3E%3Cpath d='M16 8v11m0 0-4-4m4 4 4-4M9 24h14' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <div class="eyebrow">LOCAL · SIN ANUNCIOS</div>
-      <h1>TikSave</h1>
-      <p>Guarda videos o audio de TikTok directamente en tu computadora.</p>
-    </section>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+      <symbol id="i-library" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 9.5h17M9 9.5V20" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 5V4h6v1M9 11h6M9 15h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" fill="currentColor"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 7.5 20 18M8.5 16.5 20 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z M14 3v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
 
-    <section class="card">
-      <label for="url">Enlace de TikTok</label>
-      <div class="url-row">
-        <input id="url" type="url" placeholder="https://www.tiktok.com/@usuario/video/..." autocomplete="off" spellcheck="false">
-        <button id="inspect" class="secondary">Vista previa</button>
-      </div>
+  <div id="offline" class="banner hidden">TikSave no responde. Revisa que la ventana negra de TikSave siga abierta.</div>
 
-      <div id="preview" class="preview hidden">
-        <img id="thumb" alt="Miniatura del TikTok">
-        <div>
-          <strong id="title"></strong>
-          <span id="uploader"></span>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="/"><span class="logo"><svg class="ic"><use href="#i-download"/></svg></span><span>TikSave</span></a>
+      <nav class="tabs" role="tablist" aria-label="Secciones">
+        <button class="tab active" role="tab" data-tab="download" aria-selected="true"><svg class="ic"><use href="#i-download"/></svg><span>Descargar</span></button>
+        <button class="tab" role="tab" data-tab="capture" aria-selected="false"><svg class="ic"><use href="#i-globe"/></svg><span>Capturar web</span></button>
+        <button class="tab" role="tab" data-tab="library" aria-selected="false"><svg class="ic"><use href="#i-library"/></svg><span>Biblioteca</span></button>
+        <button class="tab" role="tab" data-tab="settings" aria-selected="false"><svg class="ic"><use href="#i-gear"/></svg><span>Ajustes</span></button>
+      </nav>
+      <button id="theme" class="btn ghost small theme-btn" type="button" title="Cambiar tema">Tema: auto</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main>
+      <!-- DESCARGAR -->
+      <section id="tab-download" class="panel">
+        <div class="card">
+          <div class="card-head">
+            <h2>Pega los enlaces</h2>
+            <button id="paste" class="btn ghost small"><svg class="ic"><use href="#i-clipboard"/></svg>Pegar</button>
+          </div>
+          <div id="dropzone" class="dropzone">
+            <textarea id="urls" rows="3" spellcheck="false" aria-label="Enlaces a descargar" placeholder="Pega aquí un enlace, o arrástralo a cualquier parte de la pantalla.&#10;Varios enlaces: uno por línea. Ctrl + Enter para descargar."></textarea>
+            <div class="drop-hint"><svg class="ic"><use href="#i-download"/></svg><span>Suelta el enlace aquí</span></div>
+          </div>
+          <div id="url-hint" class="hint"></div>
+
+          <div id="profile-box" class="notice hidden"></div>
+
+          <div id="trim-box" class="trim hidden">
+            <label class="switch"><input type="checkbox" id="trim-on"><span><b>Recortar</b> — bajar solo el tramo que necesito</span></label>
+            <div id="trim-ui" class="hidden"></div>
+          </div>
+
+          <div id="preview" class="preview hidden">
+            <img id="thumb" alt="">
+            <div class="preview-body">
+              <strong id="p-title"></strong>
+              <div id="p-meta" class="muted"></div>
+              <div id="p-badges" class="badges"></div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="actions">
-        <button data-mode="video" class="primary">Descargar MP4</button>
-        <button data-mode="mp3">Descargar MP3</button>
-        <button data-mode="audio">Audio original</button>
-      </div>
-
-      <div id="job" class="job hidden">
-        <div class="job-head">
-          <span id="status">Preparando…</span>
-          <span id="percent">0%</span>
+        <div class="card">
+          <h2>¿Qué quieres guardar?</h2>
+          <div class="formats" role="radiogroup" aria-label="Formato">
+            <label class="fmt"><input type="radio" name="mode" value="video" checked><span><b>Video</b><small>MP4, mejor calidad</small></span></label>
+            <label class="fmt"><input type="radio" name="mode" value="mp3"><span><b>Audio MP3</b><small>Para escuchar</small></span></label>
+            <label class="fmt"><input type="radio" name="mode" value="audio"><span><b>Audio original</b><small>Sin convertir</small></span></label>
+            <label class="fmt"><input type="radio" name="mode" value="transcript"><span><b>Solo texto</b><small>Transcripción</small></span></label>
+            <label class="fmt"><input type="radio" name="mode" value="cover"><span><b>Solo portada</b><small>Imagen JPG</small></span></label>
+          </div>
+          <div class="extras">
+            <span class="muted">Añadir también:</span>
+            <label class="chip"><input type="checkbox" id="x-transcript"><span>Transcripción (.txt)</span></label>
+            <label class="chip"><input type="checkbox" id="x-notes"><span>Ficha para IA (.md)</span></label>
+            <label class="chip"><input type="checkbox" id="x-cover"><span>Portada (.jpg)</span></label>
+            <label class="chip"><input type="checkbox" id="x-subs"><span>Subtítulos (.srt)</span></label>
+          </div>
+          <div class="row spread">
+            <button id="kit" class="btn ghost" title="Texto + ficha Markdown, listo para pegar en Claude o ChatGPT"><svg class="ic"><use href="#i-sparkle"/></svg>Kit para IA</button>
+            <button id="go" class="btn primary big" disabled><svg class="ic"><use href="#i-download"/></svg><span id="go-label">Descargar</span></button>
+          </div>
+          <p class="fine">La <b>ficha para IA</b> es un archivo Markdown con autor, fecha, estadísticas, descripción y transcripción: ocupa muy pocos tokens al pegarlo en Claude.</p>
         </div>
-        <div class="track"><div id="bar" class="bar"></div></div>
-        <div id="details" class="details"></div>
+      </section>
+
+      <!-- CAPTURAR WEB -->
+      <section id="tab-capture" class="panel hidden">
+        <div class="card">
+          <h2>Capturar una página web</h2>
+          <p class="muted">Guarda cualquier página pública para leerla sin conexión o pasársela a una IA.</p>
+          <div class="row grow">
+            <input id="cap-url" type="text" inputmode="url" spellcheck="false" placeholder="https://ejemplo.com/articulo">
+            <button id="cap-go" class="btn primary"><svg class="ic"><use href="#i-globe"/></svg>Capturar</button>
+          </div>
+          <div class="formats four">
+            <label class="fmt"><input type="checkbox" id="c-md" checked><span><b>Markdown</b><small>Texto, código, tablas y fórmulas</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-docx"><span><b>Word (.docx)</b><small>Con ecuaciones editables</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-pdf"><span><b>PDF</b><small>Versión imprimible</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-html"><span><b>Página offline</b><small>Un solo .html</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-epub"><span><b>EPUB</b><small>Para e-readers</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-shot"><span><b>Captura de pantalla</b><small>Página completa .png</small></span></label>
+          </div>
+          <label class="switch"><input type="checkbox" id="c-images" checked><span>Guardar las imágenes en una carpeta <small>(images/)</small></span></label>
+          <div class="notice tip"><b>¿ChatGPT, Gemini o páginas con tu cuenta?</b> El servidor no puede entrar con tu sesión. Abre la conversación en tu navegador y usa la <b>extensión de TikSave → Capturar esta página</b>: guarda lo que ya ves, con fórmulas, código e imágenes.</div>
+          <div id="cap-nobrowser" class="notice hidden">No encontré Edge ni Chrome: la captura de pantalla, el PDF y las páginas hechas con JavaScript no están disponibles. Instala Chrome o ejecuta <code>python -m playwright install chromium</code>.</div>
+          <details class="adv">
+            <summary>Opciones avanzadas</summary>
+            <div class="grid2">
+              <label>Contenido
+                <select id="c-full"><option value="0">Solo el artículo principal</option><option value="1">Página completa (menús, pie…)</option></select>
+              </label>
+              <label>JavaScript
+                <select id="c-render"><option value="auto">Automático</option><option value="always">Siempre (más lento)</option><option value="never">Nunca</option></select>
+              </label>
+              <label>Seguir enlaces del mismo sitio
+                <select id="c-depth"><option value="0">No, solo esta página</option><option value="1">1 nivel</option><option value="2">2 niveles</option><option value="4">Todo el sitio (4 niveles)</option><option value="8">Respaldo completo (8 niveles)</option></select>
+              </label>
+              <label>Máximo de páginas
+                <input id="c-max" type="number" min="1" max="1000" value="10">
+              </label>
+            </div>
+            <label class="switch"><input type="checkbox" id="c-files"><span>Descargar documentos del sitio <small>(PDF, Word, Excel, PowerPoint, ZIP) con su misma carpeta</small></span></label>
+            <label class="switch"><input type="checkbox" id="c-media"><span>Incluir video y audio del sitio <small>(solo si el sitio es tuyo o el contenido es público; pesa mucho)</small></span></label>
+            <p class="fine">Seguir enlaces guarda cada subpágina como Markdown y respeta el robots.txt del sitio. Para un respaldo de tu sitio, de tu escuela o de una página de gobierno: elige "Respaldo completo", sube el máximo de páginas y marca documentos.</p>
+          </details>
+        </div>
+        <p class="fine pad">Se guarda en <b>Descargas/TikSave/Sitios</b>. Por seguridad no se pueden capturar direcciones locales o privadas.</p>
+      </section>
+
+      <!-- BIBLIOTECA -->
+      <section id="tab-library" class="panel hidden">
+        <div class="card">
+          <div class="lib-bar">
+            <input id="lib-q" type="search" placeholder="Buscar en lo guardado…">
+            <select id="lib-sort" aria-label="Ordenar" class="sort">
+              <option value="recent">Más recientes</option><option value="name">Nombre (A–Z)</option><option value="size">Más pesados</option>
+            </select>
+            <button id="lib-select" class="btn ghost small">Seleccionar</button>
+            <button id="lib-upload" class="btn small"><svg class="ic"><use href="#i-download"/></svg>Subir archivos</button>
+            <input id="lib-file" type="file" multiple hidden accept="video/*,audio/*,image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.srt,.vtt,.html">
+            <div class="seg" id="lib-filter">
+              <button class="active" data-f="all">Todo</button><button data-f="video">Video</button><button data-f="audio">Audio</button><button data-f="text">Texto</button><button data-f="site">Sitios</button>
+            </div>
+            <button id="lib-open" class="btn ghost small"><svg class="ic"><use href="#i-folder"/></svg>Abrir carpeta</button>
+          </div>
+          <div id="lib-drop" class="upload-status hidden" role="status"></div>
+          <div id="lib-bulk" class="bulk hidden">
+            <span id="lib-sel-count">0 seleccionados</span>
+            <button id="lib-del-sel" class="btn small danger"><svg class="ic"><use href="#i-trash"/></svg>Eliminar seleccionados</button>
+            <button id="lib-sel-done" class="btn small ghost">Listo</button>
+          </div>
+          <div id="lib-grid" class="lib-grid"></div>
+          <div id="lib-empty" class="empty hidden">Aún no hay nada guardado. Lo que descargues aparecerá aquí.</div>
+        </div>
+      </section>
+
+      <!-- AJUSTES -->
+      <section id="tab-settings" class="panel hidden">
+        <div class="card">
+          <h2>Ajustes</h2>
+          <label class="field">Carpeta de descargas
+            <input id="s-dir" type="text" spellcheck="false">
+          </label>
+          <label class="field">Idiomas de subtítulos (por prioridad, separados por coma)
+            <input id="s-langs" type="text" placeholder="es, en">
+          </label>
+          <label class="field">Sesión de tu navegador (para contenido con login)
+            <select id="s-cookies">
+              <option value="auto">Automático (recomendado)</option>
+              <option value="">No usar cookies</option>
+              <option value="firefox">Firefox</option>
+              <option value="chrome">Chrome</option>
+              <option value="edge">Edge</option>
+              <option value="brave">Brave</option>
+              <option value="opera">Opera</option>
+              <option value="vivaldi">Vivaldi</option>
+            </select>
+            <small class="muted">TikSave lee la sesión de ese navegador en tu computadora para bajar videos que piden iniciar sesión y capturar páginas privadas. No se guarda ni se envía a ningún lado. En Chrome/Edge puede fallar por el cifrado de Windows: ahí usa la extensión, que envía tu sesión directamente.</small>
+          </label>
+          <label class="switch"><input type="checkbox" id="s-site"><span>Organizar en carpetas por plataforma (TikTok, YouTube…)</span></label>
+          <label class="switch"><input type="checkbox" id="s-other"><span>Permitir descargar de cualquier sitio público <small>(además de TikTok, YouTube, Instagram…; usa los extractores de yt-dlp y un modo genérico para videos sueltos y streams; no funciona con contenido con DRM ni con login)</small></span></label>
+          <label class="switch"><input type="checkbox" id="s-h264"><span>Compatibilidad máxima: preferir H.264 <small>(abre en cualquier reproductor; algunos videos de TikTok bajan de 1080p a 576p)</small></span></label>
+          <div class="row"><button id="s-save" class="btn primary">Guardar ajustes</button></div>
+        </div>
+        <div class="card">
+          <h2>Estado del sistema</h2>
+          <ul id="sys" class="sys"></ul>
+          <div class="row">
+            <button id="s-update" class="btn">Actualizar yt-dlp</button>
+            <span class="muted">TikTok cambia seguido; si algo deja de funcionar, actualiza primero.</span>
+          </div>
+          <pre id="s-update-out" class="log hidden"></pre>
+        </div>
+        <p class="fine pad">TikSave <span id="ver"></span> · Todo corre en tu computadora (127.0.0.1). Úsalo solo con contenido que tengas derecho a guardar.</p>
+      </section>
+    </main>
+
+    <aside class="queue" aria-label="Cola de trabajos">
+      <div class="queue-head">
+        <h2>Cola <span id="q-count" class="count hidden"></span></h2>
+        <button id="q-clear" class="btn ghost small">Limpiar</button>
       </div>
+      <div id="q-list"></div>
+      <div id="q-empty" class="empty">Las descargas y capturas aparecerán aquí con su progreso.</div>
+    </aside>
+  </div>
 
-      <div id="message" class="message hidden"></div>
-
-      <div class="footer-actions">
-        <button id="paste" class="ghost">Pegar desde portapapeles</button>
-        <button id="open-folder" class="ghost">Abrir carpeta de descargas</button>
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="modal-box">
+      <div class="modal-head"><h3 id="m-title"></h3><button id="m-close" class="icon-btn" aria-label="Cerrar"><svg class="ic"><use href="#i-x"/></svg></button></div>
+      <div id="m-files" class="file-tabs"></div>
+      <div id="m-body" class="modal-body"></div>
+      <div id="m-trim" class="modal-trim hidden"></div>
+      <div class="modal-foot">
+        <button id="m-cut" class="btn small hidden"><svg class="ic"><use href="#i-scissors"/></svg>Recortar</button>
+        <button id="m-convert" class="btn small hidden"><svg class="ic"><use href="#i-sparkle"/></svg>Convertir / comprimir</button>
+        <button id="m-copy" class="btn small hidden"><svg class="ic"><use href="#i-copy"/></svg>Copiar texto</button>
+        <button id="m-reveal" class="btn small"><svg class="ic"><use href="#i-folder"/></svg>Mostrar en carpeta</button>
+        <button id="m-delete" class="btn small danger"><svg class="ic"><use href="#i-trash"/></svg>Eliminar</button>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <p class="legal">Úsalo únicamente con contenido público que tengas derecho a guardar. TikSave no inicia sesión ni evita restricciones privadas.</p>
-  </main>
+  <div id="drop-overlay" class="drop-overlay hidden" aria-hidden="true"><div>Suelta el enlace para descargarlo</div></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>
 </body>
 </html>
