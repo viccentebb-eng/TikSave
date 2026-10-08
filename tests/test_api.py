@@ -159,3 +159,10 @@ def test_library_snippet_for_text_items(env):
     (t / "a - hola [3].md").write_text('---\ntitle: "x"\n---\n\n# hola\n\nEste es el **contenido** real del video.\n')
     item = c.get("/api/library").json()["items"][0]
     assert item["snippet"].startswith("hola Este es el **contenido** real")
+
+
+def test_friendly_error_does_not_blame_region_for_format_errors():
+    from app.downloader import friendly_error
+    msg = friendly_error("ERROR: [youtube] abc: Requested format is not available")
+    assert "region" not in msg and "yt-dlp" in msg
+    assert "region" in friendly_error("This video is not available in your country")

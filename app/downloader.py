@@ -59,8 +59,14 @@ def friendly_error(value: Exception | str) -> str:
                               "http error 403", "forbidden", "http error 401")):
         return ("Este contenido exige iniciar sesion. Descargalo desde la extension de TikSave (botón flotante o popup), "
                 "que usa tu sesion del navegador.")
-    if any(m in low for m in ("removed", "unavailable", "not available", "404", "no longer", "deleted")):
-        return "El contenido ya no esta disponible (borrado o restringido en tu region)."
+    if "requested format is not available" in low or "only images are available" in low or "n challenge" in low \
+            or "signature solving failed" in low or "js runtime" in low or "javascript" in low:
+        return ("YouTube no entrego formatos de video para este enlace. Actualiza yt-dlp (Ajustes > Actualizar yt-dlp). "
+                "Si sigue igual, instala Node.js o Deno: yt-dlp lo necesita para leer YouTube. Detalle: " + text[:200])
+    if "not available in your country" in low or "blocked in your country" in low or "geo" in low and "restrict" in low:
+        return "El contenido esta bloqueado en tu region."
+    if any(m in low for m in ("removed", "unavailable", "404", "no longer", "deleted", "video is not available")):
+        return ("El video no esta disponible (borrado, privado o restringido). Detalle: " + text[:200])
     if "ffmpeg" in low or "ffprobe" in low:
         return "Falta FFmpeg (necesario para MP3 y subtitulos SRT). Instala FFmpeg y reinicia TikSave."
     if "unsupported url" in low and "/photo/" not in low:
@@ -162,6 +168,8 @@ class Downloader:
             "noplaylist": True,
             "retries": 3,
             "fragment_retries": 3,
+            # YouTube necesita un interprete de JavaScript para descifrar sus formatos (Deno o Node). Se usa el que haya.
+            "js_runtimes": {"deno": {}, "node": {}},
             "socket_timeout": 30,
             "http_headers": headers,
             "windowsfilenames": True,
