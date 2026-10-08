@@ -99,3 +99,10 @@ class RecordingChunk(BaseModel):
 
 class RecordingFinish(BaseModel):
     to_mp4: bool = True
+
+
+class ConvertRequest(BaseModel):
+    path: str
+    action: Literal["compress", "mp4", "webm", "mp3", "m4a", "opus"]
+    quality: Literal["alta", "media", "baja", "muy_baja"] = "media"
+    height: int | None = None

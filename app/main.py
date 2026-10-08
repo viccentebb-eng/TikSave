@@ -20,10 +20,11 @@ from app.config import SettingsStore, app_home
 from app.downloader import Downloader, friendly_error
 from app.jobs import JobStore
 from app.library import delete_files, list_library, open_in_os, resolve_inside
+from app.media_convert import MediaConverter
 from app.recorder import Recorder
 from app.trim import Trimmer
 from app.models import (BatchRequest, TrimRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
-                        PathRequest, PathsRequest, RecordingChunk, RecordingFinish, RecordingStart, SettingsUpdate)
+                        ConvertRequest, PathRequest, PathsRequest, RecordingChunk, RecordingFinish, RecordingStart, SettingsUpdate)
 from app.security import SUPPORTED_SITES, validate_media_url
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,6 +43,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     capturer = CaptureService(settings, jobs, downloader.pool)
     trimmer = Trimmer(settings, jobs, downloader.pool)
     recorder = Recorder(settings, jobs, downloader.pool)
+    converter = MediaConverter(settings, jobs, downloader.pool)
 
     api = FastAPI(title="TikSave", version=__version__)
     api.state.settings, api.state.jobs, api.state.downloader = settings, jobs, downloader
@@ -147,6 +149,13 @@ def create_app(home: Path | None = None) -> FastAPI:
         except ValueError as exc:
             raise bad(exc) from exc
 
+    @api.post("/api/convert", status_code=202)
+    def convert(payload: ConvertRequest) -> dict:
+        try:
+            return converter.enqueue(payload.path, payload.action, payload.quality, payload.height)
+        except ValueError as exc:
+            raise bad(exc) from exc
+
     @api.post("/api/recordings", status_code=201)
     def recording_start(payload: RecordingStart) -> dict:
         return recorder.start(payload.title, payload.page_url)
@@ -190,7 +199,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     @api.post("/api/jobs/{job_id}/retry", status_code=202)
     def retry_job(job_id: str) -> dict:
         try:
-            new = downloader.retry(job_id) or capturer.retry(job_id) or trimmer.retry(job_id)
+            new = downloader.retry(job_id) or capturer.retry(job_id) or trimmer.retry(job_id) or converter.retry(job_id)
         except ValueError as exc:
             raise bad(exc) from exc
         if not new:

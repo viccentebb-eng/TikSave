@@ -355,7 +355,7 @@ let prevStatus = new Map();
 let lastJobs = [];
 
 const STATUS = { queued: "En cola", starting: "Preparando", downloading: "Trabajando", processing: "Procesando", done: "Listo", error: "Error", cancelled: "Cancelado" };
-const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web", trim: "Recorte", record: "Grabación" };
+const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web", trim: "Recorte", record: "Grabación", convert: "Conversión" };
 const ACTIVE = new Set(["queued", "starting", "downloading", "processing"]);
 
 function jobCard(job) {
@@ -363,7 +363,7 @@ function jobCard(job) {
   card.append(
     h("div", { class: "job-top" },
       h("img", { class: "job-thumb hidden", alt: "", referrerpolicy: "no-referrer", loading: "lazy" }),
-      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : job.kind === "record" ? "play" : "download")),
+      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : job.kind === "record" ? "play" : job.kind === "convert" ? "sparkle" : "download")),
       h("div", { class: "job-main" }, h("div", { class: "job-title" }), h("div", { class: "job-sub" }))),
     h("div", { class: "track" }, h("div", { class: "bar" })),
     h("div", { class: "job-state" }, h("span", { class: "js-left" }), h("span", { class: "js-right" })),
@@ -389,7 +389,9 @@ function updateJobCard(card, job) {
   if (job.kind === "download" && (job.options?.start != null || job.options?.end != null)) {
     extras.push(`recorte ${fmtClock(job.options.start || 0)}–${job.options.end ? fmtClock(job.options.end) : "fin"}`);
   } else if (job.kind === "trim") extras.push(`${fmtClock(job.options.start)}–${fmtClock(job.options.end)}`);
-  $(".job-sub", card).textContent = [MODE[job.mode] || job.mode, job.uploader && (job.kind === "capture" ? job.uploader : `@${String(job.uploader).replace(/^@/, "")}`),
+
+  const modeLabel = job.kind === "convert" ? `Conversión · ${CONVERT_LABEL[job.mode] || job.mode}` : (MODE[job.mode] || job.mode);
+  $(".job-sub", card).textContent = [modeLabel, job.uploader && (job.kind === "capture" ? job.uploader : `@${String(job.uploader).replace(/^@/, "")}`),
     extras.length && `+ ${extras.join(", ")}`].filter(Boolean).join(" · ");
   const pct = Math.round(job.progress || 0);
   $(".bar", card).style.width = `${job.status === "done" ? 100 : pct}%`;
@@ -581,6 +583,7 @@ async function showFile(f) {
   modalFile = f;
   closeCutter();
   $("#m-cut").classList.toggle("hidden", !["video", "audio"].includes(f.kind));
+  $("#m-convert").classList.toggle("hidden", !["video", "audio"].includes(f.kind));
   $$("#m-files button").forEach((b) => b.classList.toggle("active", b.dataset.path === f.path));
   const body = $("#m-body"); body.replaceChildren();
   const url = `/files/${encPath(norm(f.path))}`;
@@ -627,6 +630,43 @@ async function paintFrames(media, strip) {
   finally { if (isFinite(was)) media.currentTime = was; if (!paused) media.play().catch(() => {}); }
 }
 
+const CONVERT_LABEL = { compress: "comprimir", mp4: "a MP4", webm: "a WebM", mp3: "audio MP3", m4a: "audio M4A", opus: "audio Opus" };
+const VIDEO_ONLY_ACTIONS = new Set(["compress", "mp4", "webm"]);
+
+// Panel de conversion: accion, calidad y resolucion. Solo cambia el archivo nuevo; el original no se toca.
+function openConvert() {
+  const box = $("#m-trim");
+  if (!box.classList.contains("hidden") && box.dataset.mode === "convert") { closeCutter(); return; }
+  if (!modalFile) return;
+  const isVideo = modalFile.kind === "video";
+  const action = h("select", { "aria-label": "Qué hacer" },
+    ...(isVideo ? [h("option", { value: "compress" }, "Comprimir (archivo más pequeño)"), h("option", { value: "mp4" }, "Convertir a MP4"),
+                   h("option", { value: "webm" }, "Convertir a WebM"), h("option", { value: "mp3" }, "Sacar solo el audio (MP3)"),
+                   h("option", { value: "m4a" }, "Sacar solo el audio (M4A)"), h("option", { value: "opus" }, "Sacar solo el audio (Opus)")]
+      : [h("option", { value: "mp3" }, "Convertir a MP3"), h("option", { value: "m4a" }, "Convertir a M4A"), h("option", { value: "opus" }, "Convertir a Opus")]));
+  const quality = h("select", { "aria-label": "Calidad" },
+    h("option", { value: "alta" }, "Alta (mejor calidad)"), h("option", { value: "media", selected: true }, "Media (recomendada)"),
+    h("option", { value: "baja" }, "Baja (más pequeño)"), h("option", { value: "muy_baja" }, "Muy baja (mínimo)"));
+  const height = h("select", { "aria-label": "Resolución" },
+    h("option", { value: "" }, "Resolución original"), h("option", { value: "1080" }, "1080p"), h("option", { value: "720" }, "720p"),
+    h("option", { value: "480" }, "480p"), h("option", { value: "360" }, "360p"));
+  const note = h("div", { class: "muted" }, "El archivo original se queda como está; el resultado aparece en la Biblioteca.");
+  const sync = () => { height.disabled = !VIDEO_ONLY_ACTIONS.has(action.value); if (height.disabled) height.value = ""; };
+  action.addEventListener("change", sync); sync();
+  const go = h("button", { class: "btn small primary", onclick: async () => {
+    const h2 = height.value ? Number(height.value) : null;
+    try {
+      await post("/api/convert", { path: norm(modalFile.path), action: action.value, quality: quality.value, height: h2 });
+      toast("Conversión en cola.", "ok"); closeCutter(); refreshJobs();
+    } catch (err) { toast(err.message, "error"); }
+  } }, icon("sparkle"), "Convertir");
+  box.dataset.mode = "convert";
+  box.replaceChildren(h("div", { class: "rng-times" }, h("label", {}, "Qué hacer", action), h("label", {}, "Calidad", quality), h("label", {}, "Resolución", height)),
+    h("div", { class: "rng-actions", style: "margin-top:12px" }, go, note));
+  box.classList.remove("hidden");
+}
+$("#m-convert").addEventListener("click", openConvert);
+
 function closeCutter() {
   $("#m-trim").classList.add("hidden"); $("#m-trim").replaceChildren();
 }
@@ -662,6 +702,7 @@ function openCutter() {
       h("button", { class: "btn small", onclick: preview }, icon("play"), "Ver tramo"),
       h("label", { class: "switch" }, precise, h("span", {}, "Corte exacto ", h("small", {}, "(más lento)"))),
       h("button", { class: "btn small primary", onclick: save }, icon("scissors"), "Guardar recorte")));
+    box.dataset.mode = "cut";
     box.classList.remove("hidden");
     const track = holder.querySelector(".rng-track");
     if (track) track.prepend(strip);
