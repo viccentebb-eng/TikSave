@@ -96,32 +96,82 @@ document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("clic
   url: currentUrl, mode: b.dataset.mode, title: siteFor(currentUrl) ? undefined : pageTitle(),
   referer: siteFor(currentUrl) ? undefined : currentUrl })));
 document.querySelector("[data-kit]").addEventListener("click", () => sendDownload({ url: currentUrl, mode: "transcript" }));
-// Se ejecuta DENTRO de la pagina (con tu sesion): copia el DOM y convierte las imagenes a datos incrustados.
+// Se ejecuta DENTRO de la pagina (con tu sesion). Las conversaciones (ChatGPT, Gemini) se cargan
+// mientras se desplaza la pagina, asi que se recorren y se guarda cada mensaje al pasar por el.
 async function grabPage() {
-  const MAX_IMG = 3 * 1024 * 1024, MAX_TOTAL = 25 * 1024 * 1024, MAX_COUNT = 60;
-  const imgs = [...document.querySelectorAll("img")];
+  const MAX_IMG = 3 * 1024 * 1024, MAX_TOTAL = 25 * 1024 * 1024, MAX_COUNT = 80;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const toData = (blob) => new Promise((res) => {
     const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob);
   });
-  let total = 0;
-  const map = new Map();
-  const targets = imgs.filter((i) => /^https?:/.test(i.currentSrc || i.src)).slice(0, MAX_COUNT);
-  await Promise.all(targets.map(async (img) => {
+  let total = 0, count = 0;
+  const imgCache = new Map();
+  async function inlineImg(src) {
+    if (!/^https?:/.test(src || "")) return null;
+    if (imgCache.has(src)) return imgCache.get(src);
+    let data = null;
     try {
-      const res = await fetch(img.currentSrc || img.src, { credentials: "include" });
-      if (!res.ok) return;
-      const blob = await res.blob();
-      if (!blob.type.startsWith("image/") || blob.size > MAX_IMG || total + blob.size > MAX_TOTAL) return;
-      total += blob.size;
-      const data = await toData(blob);
-      if (data) map.set(img, data);
-    } catch { /* imagen no accesible: se queda el enlace original */ }
-  }));
+      if (total < MAX_TOTAL && count < MAX_COUNT) {
+        const res = await fetch(src, { credentials: "include" });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.type.startsWith("image/") && blob.size <= MAX_IMG && total + blob.size <= MAX_TOTAL) {
+            total += blob.size; count++; data = await toData(blob);
+          }
+        }
+      }
+    } catch { /* imagen no accesible: queda el enlace original */ }
+    imgCache.set(src, data);
+    return data;
+  }
+
+  const CHAT_SEL = "[data-message-author-role], user-query, model-response";
+  if (document.querySelector(CHAT_SEL)) {
+    const scroller = [...document.querySelectorAll("main, div, section")]
+      .filter((el) => el.scrollHeight > el.clientHeight + 80 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))
+      .sort((x, y) => y.scrollHeight - x.scrollHeight)[0] || null;
+    const seen = new Map();
+    const collect = async () => {
+      for (const node of document.querySelectorAll(CHAT_SEL)) {
+        const key = node.getAttribute("data-message-id") || node.innerText.slice(0, 160);
+        if (seen.has(key)) continue;
+        const clone = node.cloneNode(true);
+        const live = [...node.querySelectorAll("img")], copies = [...clone.querySelectorAll("img")];
+        for (let i = 0; i < live.length; i++) {
+          const data = await inlineImg(live[i].currentSrc || live[i].src);
+          if (data && copies[i]) { copies[i].setAttribute("src", data); copies[i].removeAttribute("srcset"); }
+        }
+        seen.set(key, clone.outerHTML);
+      }
+    };
+    const top = scroller ? scroller.scrollTop : window.scrollY;
+    if (scroller) scroller.scrollTop = 0; else window.scrollTo(0, 0);
+    await sleep(600);
+    for (let step = 0; step < 300; step++) {
+      await collect();
+      const el = scroller || document.documentElement;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 6) { await sleep(500); await collect(); break; }
+      if (scroller) scroller.scrollTop += scroller.clientHeight * 0.8; else window.scrollBy(0, innerHeight * 0.8);
+      await sleep(400);
+    }
+    if (scroller) scroller.scrollTop = top; else window.scrollTo(0, top);
+    const body = [...seen.values()].join("\n");
+    return {
+      html: `<!doctype html><html lang="${document.documentElement.lang || "es"}"><head><meta charset="utf-8"><title>${document.title.replace(/</g, "")}</title></head><body><main>${body}</main></body></html>`,
+      url: location.href, title: document.title,
+    };
+  }
+
+  // Pagina normal: una sola foto del DOM con las imagenes incrustadas.
+  const imgs = [...document.querySelectorAll("img")].filter((i) => /^https?:/.test(i.currentSrc || i.src)).slice(0, MAX_COUNT);
+  const datas = await Promise.all(imgs.map((img) => inlineImg(img.currentSrc || img.src)));
   const clone = document.documentElement.cloneNode(true);
   const cloned = clone.querySelectorAll("img");
   imgs.forEach((img, i) => {
-    const data = map.get(img);
-    if (data && cloned[i]) { cloned[i].setAttribute("src", data); cloned[i].removeAttribute("srcset"); }
+    const data = datas[i];
+    const all = [...document.querySelectorAll("img")];
+    const idx = all.indexOf(img);
+    if (data && cloned[idx]) { cloned[idx].setAttribute("src", data); cloned[idx].removeAttribute("srcset"); }
   });
   return { html: "<!doctype html>" + clone.outerHTML, url: location.href, title: document.title };
 }
@@ -130,8 +180,9 @@ $("capture").addEventListener("click", async () => {
   const formats = { markdown: $("f-md").checked, docx: $("f-docx").checked, pdf: $("f-pdf").checked, html: $("f-html").checked };
   if (!Object.values(formats).some(Boolean)) { say("Elige al menos un formato.", "error"); return; }
   $("capture").disabled = true;
-  say("Leyendo la página que estás viendo…");
-  let body = { url: currentUrl, ...formats };
+  say("Leyendo la página (si es una conversación, se desplaza para cargarla toda)…");
+  const media = $("f-media").checked;
+  let body = { url: currentUrl, ...formats, media, files: media };
   try {
     const [{ result }] = await ext.scripting.executeScript({ target: { tabId: currentTabId }, func: grabPage });
     if (result?.html) body = { ...body, url: result.url, html_source: result.html };

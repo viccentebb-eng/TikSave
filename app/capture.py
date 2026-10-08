@@ -70,6 +70,48 @@ def download_to_file(client: httpx.Client, url: str, target: Path, max_bytes: in
     raise CaptureError("Demasiadas redirecciones.")
 
 
+def linked_files(html: str, base: str, host: str | None, opts) -> list[str]:
+    """Documentos (y multimedia si se pidio) del mismo sitio: enlaces <a> y etiquetas <video>/<audio>."""
+    exts = DOC_EXT | (MEDIA_EXT if opts.media else set())
+    soup = BeautifulSoup(html, "html.parser")
+    raw = [a["href"] for a in soup.find_all("a", href=True)]
+    if opts.media:
+        raw += [t["src"] for t in soup.find_all(["video", "audio", "source"]) if t.get("src")]
+    out = []
+    for item in raw:
+        href = urldefrag(urljoin(base, item))[0]
+        p = urlparse(href)
+        if p.scheme in {"http", "https"} and p.hostname == host and p.path.lower().rsplit(".", 1)[-1] in exts:
+            out.append(href)
+    return list(dict.fromkeys(out))
+
+
+def save_linked_files(client: httpx.Client, html: str, base: str, out_dir: Path, opts, check, step,
+                      done: set[str], robots=None) -> int:
+    """Guarda los archivos enlazados en out_dir/archivos conservando la ruta del sitio."""
+    host = urlparse(base).hostname
+    count = 0
+    for file_url in linked_files(html, base, host, opts)[:200]:
+        if file_url in done:
+            continue
+        done.add(file_url)
+        if robots and not robots.can_fetch(USER_AGENT, file_url):
+            continue
+        check()
+        parts = [re.sub(r"[^\w.\-]+", "_", unquote(part)).strip("._") or "x"
+                 for part in urlparse(file_url).path.strip("/").split("/")]
+        target = out_dir / "archivos" / Path(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        is_media = target.suffix.lower().lstrip(".") in MEDIA_EXT
+        try:
+            download_to_file(client, file_url, target, MAX_MEDIA_BYTES if is_media else MAX_DOC_BYTES)
+            count += 1
+            step(f"Archivos guardados: {count}", 90)
+        except (CaptureError, httpx.HTTPError, ValueError, OSError):
+            target.unlink(missing_ok=True)
+    return count
+
+
 class CaptureError(Exception):
     pass
 
@@ -559,6 +601,9 @@ class CaptureService:
                 md_path.write_text(front_matter(meta, final_url) + "\n\n" + body + "\n", encoding="utf-8")
                 if opts.markdown:
                     files.append(md_path)
+            if opts.files or opts.media:
+                step("Buscando archivos del sitio", 60)
+                save_linked_files(client, html, final_url, out_dir, opts, check, step, set())
             if opts.docx or opts.epub:
                 for fmt, wanted in (("docx", opts.docx), ("epub", opts.epub)):
                     if not wanted:
@@ -651,42 +696,12 @@ class CaptureService:
                     out.append(href)
             return list(dict.fromkeys(out))
 
-        def file_links(html: str, base: str) -> list[str]:
-            exts = DOC_EXT | (MEDIA_EXT if opts.media else set())
-            out = []
-            for a in BeautifulSoup(html, "html.parser").find_all("a", href=True):
-                href = urldefrag(urljoin(base, a["href"]))[0]
-                p = urlparse(href)
-                if p.scheme in {"http", "https"} and p.hostname == host and p.path.lower().rsplit(".", 1)[-1] in exts:
-                    out.append(href)
-            return list(dict.fromkeys(out))
-
-        files_dir = out_dir / "archivos"
         downloaded: set[str] = set()
 
         def save_files(html: str, base: str) -> int:
             if not opts.files and not opts.media:
                 return 0
-            count = 0
-            for file_url in file_links(html, base):
-                if file_url in downloaded or count >= 200:
-                    continue
-                downloaded.add(file_url)
-                if robots and not robots.can_fetch(USER_AGENT, file_url):
-                    continue
-                check()
-                parts = [re.sub(r"[^\w.\-]+", "_", unquote(part)).strip("._") or "x" for part in urlparse(file_url).path.strip("/").split("/")]
-                rel = Path(*parts)
-                target = files_dir / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    download_to_file(client, file_url, target, MAX_MEDIA_BYTES if target.suffix.lower().lstrip(".") in MEDIA_EXT else MAX_DOC_BYTES)
-                    count += 1
-                except (CaptureError, httpx.HTTPError, ValueError, OSError):
-                    target.unlink(missing_ok=True)
-            if count:
-                step(f"Archivos guardados: {count}", 90)
-            return count
+            return save_linked_files(client, html, base, out_dir, opts, check, step, downloaded, robots)
 
         seen = {urldefrag(start_url)[0]}
         save_files(start_html, start_url)
