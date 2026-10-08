@@ -20,9 +20,10 @@ from app.config import SettingsStore, app_home
 from app.downloader import Downloader, friendly_error
 from app.jobs import JobStore
 from app.library import delete_files, list_library, open_in_os, resolve_inside
+from app.recorder import Recorder
 from app.trim import Trimmer
 from app.models import (BatchRequest, TrimRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
-                        PathRequest, PathsRequest, SettingsUpdate)
+                        PathRequest, PathsRequest, RecordingChunk, RecordingFinish, RecordingStart, SettingsUpdate)
 from app.security import SUPPORTED_SITES, validate_media_url
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,6 +41,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     downloader = Downloader(settings, jobs)
     capturer = CaptureService(settings, jobs, downloader.pool)
     trimmer = Trimmer(settings, jobs, downloader.pool)
+    recorder = Recorder(settings, jobs, downloader.pool)
 
     api = FastAPI(title="TikSave", version=__version__)
     api.state.settings, api.state.jobs, api.state.downloader = settings, jobs, downloader
@@ -113,7 +115,8 @@ def create_app(home: Path | None = None) -> FastAPI:
     def download(payload: DownloadRequest) -> dict:
         try:
             return downloader.enqueue(payload.url, payload.mode, payload.transcript, payload.cover, payload.notes,
-                                      payload.start, payload.end, payload.referer, payload.title)
+                                      payload.start, payload.end, payload.referer, payload.title,
+                                      [c.model_dump() for c in payload.cookies] if payload.cookies else None)
         except ValueError as exc:
             raise bad(exc) from exc
 
@@ -143,6 +146,29 @@ def create_app(home: Path | None = None) -> FastAPI:
             return trimmer.enqueue(payload.path, payload.start, payload.end, payload.precise)
         except ValueError as exc:
             raise bad(exc) from exc
+
+    @api.post("/api/recordings", status_code=201)
+    def recording_start(payload: RecordingStart) -> dict:
+        return recorder.start(payload.title, payload.page_url)
+
+    @api.post("/api/recordings/{rec_id}/chunk")
+    def recording_chunk(rec_id: str, payload: RecordingChunk) -> dict:
+        try:
+            return recorder.chunk(rec_id, payload.seq, payload.data)
+        except ValueError as exc:
+            raise bad(exc) from exc
+
+    @api.post("/api/recordings/{rec_id}/finish")
+    def recording_finish(rec_id: str, payload: RecordingFinish) -> dict:
+        try:
+            return recorder.finish(rec_id, payload.to_mp4)
+        except ValueError as exc:
+            raise bad(exc) from exc
+
+    @api.post("/api/recordings/{rec_id}/abort")
+    def recording_abort(rec_id: str) -> dict:
+        recorder.abort(rec_id)
+        return {"ok": True}
 
     @api.get("/api/jobs")
     def list_jobs() -> dict:

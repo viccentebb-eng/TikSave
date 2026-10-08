@@ -28,7 +28,16 @@ class Settings(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=lambda: ["es", "en"])
     organize_by_site: bool = True
     prefer_h264: bool = False
+    cookies_browser: str = ""  # "" = no usar cookies; firefox, chrome, edge...
     allow_other_sites: bool = True  # descargar de cualquier sitio publico que yt-dlp entienda
+
+    @field_validator("cookies_browser")
+    @classmethod
+    def _browser(cls, value: str) -> str:
+        value = (value or "").strip().lower()
+        if value and value not in ("firefox", "chrome", "edge", "brave", "chromium", "opera", "vivaldi", "safari"):
+            raise ValueError("Navegador no soportado para leer cookies.")
+        return value
 
     @field_validator("subtitle_langs")
     @classmethod

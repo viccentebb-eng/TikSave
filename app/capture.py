@@ -22,6 +22,7 @@ import httpx
 from bs4 import BeautifulSoup, UnicodeDammit
 
 from app.config import SettingsStore
+from app.cookies import browser_jar, cookies_for_url
 from app.convert import (CHAT_HOSTS, html_to_markdown, has_pandoc, localize_images, page_meta,  # noqa: F401
                          pandoc_convert)
 from app.jobs import JobCancelled, JobStore
@@ -62,8 +63,8 @@ class CaptureOptions:
 
 
 # ----------------------------------------------------------------- red segura
-def _client() -> httpx.Client:
-    return httpx.Client(headers={"User-Agent": USER_AGENT, "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+def _client(jar=None) -> httpx.Client:
+    return httpx.Client(cookies=jar, headers={"User-Agent": USER_AGENT, "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
                                  "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
                         timeout=httpx.Timeout(20.0), follow_redirects=False)
 
@@ -271,7 +272,8 @@ _SCROLL_JS = """async () => {
 }"""
 
 
-def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path | None = None) -> tuple[str, str, list[str]]:
+def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path | None = None,
+                cookies: list[dict] | None = None) -> tuple[str, str, list[str]]:
     """Abre la pagina en un navegador real. Devuelve (html_renderizado, url_final, avisos)."""
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
@@ -299,6 +301,8 @@ def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path |
                 return route.continue_()
 
             context.route("**/*", guard)
+            if cookies:
+                context.add_cookies(cookies)
             page = context.new_page()
             page.set_default_timeout(30000)
             try:
@@ -414,8 +418,14 @@ class CaptureService:
         login_hint = ("Si la pagina exige iniciar sesion (ChatGPT, Gemini, redes sociales), usa la extension de TikSave: "
                       "captura lo que ya ves en tu navegador, con tu sesion.")
 
+        jar = None
+        try:
+            jar = browser_jar(self.settings.value.cookies_browser)
+        except (RuntimeError, ValueError) as exc:
+            warnings.append(str(exc))
+        page_cookies = cookies_for_url(jar, url) if jar is not None else []
         step("Abriendo la pagina", 5)
-        with _client() as client:
+        with _client(jar) as client:
             html = final_url = None
             rendered = source_html is not None
             shot_tmp = out_dir / "_tmp.png" if opts.screenshot else None
@@ -447,7 +457,7 @@ class CaptureService:
                     if caps_browser:
                         step("Renderizando con navegador", 25)
                         try:
-                            html, final_url, w = render_page(final_url or url, shot_tmp, pdf_tmp)
+                            html, final_url, w = render_page(final_url or url, shot_tmp, pdf_tmp, cookies=page_cookies or None)
                             rendered, early_render, warnings = True, True, warnings + w
                         except CaptureError:
                             if need_browser_outputs or static_html is None:

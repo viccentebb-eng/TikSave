@@ -70,9 +70,20 @@ async function init() {
 }
 
 const pageTitle = () => $("url").textContent;
-document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => send("/api/download", {
-  url: currentUrl, mode: b.dataset.mode, title: siteFor(currentUrl) ? undefined : pageTitle(), referer: siteFor(currentUrl) ? undefined : currentUrl })));
-document.querySelector("[data-kit]").addEventListener("click", () => send("/api/download", { url: currentUrl, mode: "transcript", notes: true, cover: true }));
+// Las descargas pasan por el fondo: el adjunta tu sesion (cookies) y resuelve el enlace correcto.
+async function sendDownload(body) {
+  try {
+    const res = await ext.runtime.sendMessage({ type: "save", explicitUrl: body.url, mode: body.mode, title: body.title,
+      referer: body.referer, pageUrl: currentUrl, tabId: currentTabId });
+    if (!res || res.error) throw new Error(res?.error || "Sin respuesta");
+    say("Enviado a TikSave…");
+    await track(res.job.id);
+  } catch (err) { say(err.message || "No se pudo conectar con TikSave.", "error"); }
+}
+document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => sendDownload({
+  url: currentUrl, mode: b.dataset.mode, title: siteFor(currentUrl) ? undefined : pageTitle(),
+  referer: siteFor(currentUrl) ? undefined : currentUrl })));
+document.querySelector("[data-kit]").addEventListener("click", () => sendDownload({ url: currentUrl, mode: "transcript" }));
 // Se ejecuta DENTRO de la pagina (con tu sesion): copia el DOM y convierte las imagenes a datos incrustados.
 async function grabPage() {
   const MAX_IMG = 3 * 1024 * 1024, MAX_TOTAL = 25 * 1024 * 1024, MAX_COUNT = 60;
@@ -123,8 +134,10 @@ async function initFloating(isWeb) {
   try { granted = await ext.permissions.contains({ origins: ["<all_urls>"] }); } catch { /* ignorar */ }
   $("perm").classList.toggle("hidden", granted);
   $("float-row").classList.toggle("hidden", !granted);
-  const stored = await ext.storage.local.get({ floatEnabled: true });
+  const stored = await ext.storage.local.get({ floatEnabled: true, useCookies: true });
   $("float-on").checked = stored.floatEnabled !== false;
+  $("cookie-on").checked = stored.useCookies !== false;
+  $("cookie-row").classList.remove("hidden");
   if (granted) await showFound();
 }
 $("grant").addEventListener("click", async () => {
@@ -134,6 +147,7 @@ $("grant").addEventListener("click", async () => {
     else say("Sin ese permiso no puedo mostrar el botón flotante.", "error");
   } catch (err) { say(err.message || "No se pudo pedir el permiso.", "error"); }
 });
+$("cookie-on").addEventListener("change", () => ext.storage.local.set({ useCookies: $("cookie-on").checked }));
 $("float-on").addEventListener("change", () => ext.storage.local.set({ floatEnabled: $("float-on").checked }));
 
 async function showFound() {
@@ -149,7 +163,7 @@ async function showFound() {
     name.textContent = `${item.kind === "manifest" ? "Stream" : "Video"} · ${host.slice(0, 28)}${item.size ? ` · ${(item.size / 1e6).toFixed(1)} MB` : ""}`;
     name.title = item.url;
     const mk = (text, mode) => { const b = document.createElement("button"); b.textContent = text;
-      b.addEventListener("click", () => send("/api/download", { url: item.url, mode, referer: currentUrl, title: pageTitle() })); return b; };
+      b.addEventListener("click", () => sendDownload({ url: item.url, mode, referer: currentUrl, title: pageTitle() })); return b; };
     row.append(name, mk("MP4", "video"), mk("MP3", "mp3"));
     box.append(row);
   }

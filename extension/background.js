@@ -117,6 +117,28 @@ ext.runtime.onInstalled.addListener(registerFloating);
 ext.runtime.onStartup.addListener(registerFloating);
 ext.permissions.onAdded?.addListener(registerFloating);
 
+// ---------- sesion (cookies) ----------
+// Con "Usar mi sesion" activo, las cookies del sitio viajan SOLO a TikSave en 127.0.0.1 para ese trabajo; el servidor
+// las borra al terminar y nunca las guarda en el historial.
+async function useCookiesEnabled() {
+  try { return (await ext.storage.local.get({ useCookies: true })).useCookies !== false; } catch { return true; }
+}
+async function collectCookies(urls) {
+  if (!ext.cookies || !(await useCookiesEnabled())) return [];
+  const found = new Map();
+  for (const url of [...new Set(urls)].filter((u) => /^https?:/i.test(u || ""))) {
+    try {
+      for (const c of await ext.cookies.getAll({ url })) {
+        found.set(`${c.domain}|${c.path}|${c.name}`, {
+          name: c.name, value: c.value, domain: c.domain, path: c.path, secure: !!c.secure,
+          httpOnly: !!c.httpOnly, expires: c.expirationDate || null,
+        });
+      }
+    } catch { /* sin permiso para ese sitio */ }
+  }
+  return [...found.values()].slice(0, 500);
+}
+
 // ---------- guardar ----------
 async function resolveTarget({ pageUrl, candidate, directSrc, tabId }) {
   const { sites } = await loadSites();
@@ -129,7 +151,7 @@ async function resolveTarget({ pageUrl, candidate, directSrc, tabId }) {
 }
 
 async function save(msg, sender) {
-  const tab = sender.tab || {};
+  const tab = sender.tab || { id: msg.tabId, url: msg.pageUrl, title: msg.title };
   const pageUrl = tab.url || msg.pageUrl;
   const target = msg.explicitUrl
     ? { url: msg.explicitUrl, referer: msg.referer || pageUrl }
@@ -138,8 +160,10 @@ async function save(msg, sender) {
   if (target.referer) body.referer = target.referer;
   if (msg.mode === "transcript") { body.notes = true; body.cover = true; }
   if (msg.start > 0) body.start = msg.start;
+  const cookies = await collectCookies([target.url, pageUrl, target.referer]);
+  if (cookies.length) body.cookies = cookies;
   const job = await call("/api/download", body);
-  if (tab.id != null) watchJob(job.id, tab.id);
+  if (sender.tab && tab.id != null) watchJob(job.id, tab.id);
   return { ok: true, job };
 }
 
@@ -159,6 +183,11 @@ async function handle(msg, sender) {
     case "save": return save(msg, sender);
     case "media": return { media: await getMedia(msg.tabId) };
     case "register": return { ok: await registerFloating() };
+    case "job-status": return call(`/api/jobs/${encodeURIComponent(msg.id)}`);
+    case "rec-start": return call("/api/recordings", { title: msg.title || "", page_url: msg.pageUrl || sender.tab?.url || "" });
+    case "rec-chunk": return call(`/api/recordings/${encodeURIComponent(msg.id)}/chunk`, { seq: msg.seq, data: msg.data });
+    case "rec-finish": return call(`/api/recordings/${encodeURIComponent(msg.id)}/finish`, { to_mp4: true });
+    case "rec-abort": return call(`/api/recordings/${encodeURIComponent(msg.id)}/abort`, {});
     case "status": {
       let apiOk = true, anySite = false;
       try { anySite = (await loadSites()).anySite; } catch { apiOk = false; }

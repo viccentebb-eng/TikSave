@@ -10,6 +10,8 @@ from app import capture
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = {
+    "/blob": """<html><title>Video Blob</title><body><video id="v" width="480" height="270" muted playsinline></video>
+      <script>fetch('/clip.webm').then(r => r.blob()).then(b => { document.getElementById('v').src = URL.createObjectURL(b); });</script></body></html>""",
     "/watch": '<html><title>Pelicula X</title><body><video id="v" src="/clip.webm" width="480" height="270" muted></video></body></html>',
     "/tiny": '<html><body><video src="/clip.webm" width="90" height="60"></video></body></html>',
     "/feed": """<html><title>Feed</title><body>
@@ -148,4 +150,57 @@ def test_ignores_script_clicks_and_tiny_videos(browser, site):
     page = open_page(browser, site + "/tiny")
     hover_first_video(page)
     assert page.evaluate("!document.querySelector('tiksave-float')")
+    page.close()
+
+
+def test_records_a_blob_video_end_to_end(browser, site, tmp_path, monkeypatch):
+    """Video servido como blob: -> boton 'Grabar desde el inicio' -> trozos al servidor -> MP4 final."""
+    import subprocess as sp
+    import time
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    monkeypatch.setenv("TIKSAVE_DOWNLOAD_DIR", str(tmp_path / "dl"))
+    api = TestClient(create_app(tmp_path / "home"))
+
+    def bg(msg):  # el "fondo" de la extension: reenvia al servidor real
+        t = msg["type"]
+        if t == "rec-start":
+            return api.post("/api/recordings", json={"title": msg["title"], "page_url": msg["pageUrl"]}).json()
+        if t == "rec-chunk":
+            return api.post(f"/api/recordings/{msg['id']}/chunk", json={"seq": msg["seq"], "data": msg["data"]}).json()
+        if t == "rec-finish":
+            return api.post(f"/api/recordings/{msg['id']}/finish", json={"to_mp4": True}).json()
+        if t == "job-status":
+            return api.get(f"/api/jobs/{msg['id']}").json()
+        return {}
+
+    page = browser.new_page(viewport={"width": 1000, "height": 800})
+    page.expose_function("__bg", bg)
+    page.add_init_script(SHIM.replace("sendMessage: async (m) => { window.__sent.push(m); return { ok: true, job: { id: 'j1' } }; }",
+                                      "sendMessage: async (m) => { window.__sent.push({type: m.type}); return window.__bg(m); }"))
+    page.goto(site + "/blob")
+    page.add_script_tag(path=str(ROOT / "extension" / "content.js"))
+    page.wait_for_function("document.getElementById('v').readyState >= 2")
+    hover_first_video(page)
+    real_click(page, "r.getElementById('btn')")
+    real_click(page, "r.querySelector('[data-mode=record-start]')")
+    page.wait_for_timeout(3500)
+    assert "Grabando" in shadow(page, "r.getElementById('label').textContent")
+    hover_first_video(page)
+    real_click(page, "r.getElementById('btn')")  # detener
+    for _ in range(80):
+        jobs = api.get("/api/jobs").json()["jobs"]
+        if jobs and jobs[0]["status"] in ("done", "error"):
+            break
+        page.wait_for_timeout(250)  # no time.sleep: bloquearia los mensajes de la pagina hacia Python
+    job = jobs[0]
+    assert job["kind"] == "record" and job["status"] == "done", job
+    out = Path(job["filename"])
+    assert out.suffix == ".mp4" and out.exists()
+    dur = float(sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
+                       capture_output=True, text=True).stdout)
+    assert 2.0 < dur < 6.0, dur
+    kinds = [m["type"] for m in page.evaluate("window.__sent")]
+    assert kinds[0] == "rec-start" and "rec-chunk" in kinds and "rec-finish" in kinds
     page.close()

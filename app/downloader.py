@@ -17,6 +17,7 @@ from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import download_range_func
 
 from app.config import SettingsStore
+from app.cookies import write_cookie_file
 from app.jobs import JobCancelled, JobStore
 from app.security import site_for_url, validate_media_url
 from app.textutils import build_notes, subtitles_to_text
@@ -51,8 +52,13 @@ def friendly_error(value: Exception | str) -> str:
                     "install-windows.bat (o: pip install -U \"yt-dlp[default,curl-cffi]\") y reinicia TikSave.")
         return ("TikTok rechazo la peticion. Pulsa Ajustes > Actualizar yt-dlp y reintenta; "
                 "si persiste, puede ser una restriccion temporal de tu conexion.")
-    if any(m in low for m in ("private", "log in", "login", "sign in", "cookies")):
-        return "Este contenido es privado o exige iniciar sesion. TikSave solo guarda contenido publico."
+    if "cookie" in low and any(m in low for m in ("could not", "failed", "decrypt", "database", "locked", "no pude leer")):
+        return ("No pude leer las cookies de tu navegador (cierra el navegador o prueba con Firefox; en Chrome/Edge el "
+                "cifrado de Windows puede impedirlo). Tambien puedes descargar desde la extension, que envia tu sesion.")
+    if any(m in low for m in ("private", "log in", "login", "sign in", "cookies", "members-only", "authenticat",
+                              "http error 403", "forbidden", "http error 401")):
+        return ("Este contenido exige iniciar sesion. En Ajustes elige tu navegador en 'Usar mis cookies' o descargalo "
+                "desde la extension de TikSave, que usa tu sesion.")
     if any(m in low for m in ("removed", "unavailable", "not available", "404", "no longer", "deleted")):
         return "El contenido ya no esta disponible (borrado o restringido en tu region)."
     if "ffmpeg" in low or "ffprobe" in low:
@@ -127,6 +133,8 @@ class Downloader:
         self.jobs = jobs
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tiksave")
         self._run_lock = threading.Lock()
+        self._cookies: dict[str, list[dict]] = {}  # cookies de la extension por trabajo (solo en memoria)
+        self._cookie_files: dict[str, Path] = {}
 
     # ------------------------------------------------------------------ info
     @staticmethod
@@ -159,9 +167,24 @@ class Downloader:
     def _check_url(self, url: str) -> tuple[str, str]:
         return validate_media_url(url, self.settings.value.allow_other_sites)
 
+    def _auth_options(self, job_id: str | None = None) -> dict[str, Any]:
+        """Sesion del usuario: cookies que mando la extension para este trabajo, o las del navegador elegido."""
+        if job_id and self._cookies.get(job_id):
+            if job_id not in self._cookie_files:
+                self._cookie_files[job_id] = write_cookie_file(self._cookies[job_id], self.settings.path.parent / "tmp",
+                                                               job_id)
+            return {"cookiefile": str(self._cookie_files[job_id])}
+        browser = self.settings.value.cookies_browser
+        return {"cookiesfrombrowser": (browser,)} if browser else {}
+
+    def _forget_cookies(self, job_id: str) -> None:
+        path = self._cookie_files.pop(job_id, None)
+        if path:
+            path.unlink(missing_ok=True)
+
     def inspect(self, url: str) -> dict[str, Any]:
         url, site = self._check_url(url)
-        with yt_dlp.YoutubeDL({**self._base_options(), "skip_download": True}) as ydl:
+        with yt_dlp.YoutubeDL({**self._base_options(), **self._auth_options(), "skip_download": True}) as ydl:
             info = ydl.extract_info(url, download=False)
         subs = list((info.get("subtitles") or {}).keys())
         auto = list((info.get("automatic_captions") or {}).keys())
@@ -186,7 +209,7 @@ class Downloader:
     def expand(self, url: str, limit: int = 20) -> list[dict[str, str]]:
         """Perfil / lista -> enlaces individuales (los ultimos `limit`)."""
         url, _ = self._check_url(url)
-        opts = {**self._base_options(), "noplaylist": False, "extract_flat": "in_playlist",
+        opts = {**self._base_options(), **self._auth_options(), "noplaylist": False, "extract_flat": "in_playlist",
                 "playlistend": max(1, min(limit, 100)), "skip_download": True}
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -208,7 +231,8 @@ class Downloader:
     # --------------------------------------------------------------- enqueue
     def enqueue(self, url: str, mode: str = "video", transcript: bool = False,
                 cover: bool = False, notes: bool = False, start: float | None = None,
-                end: float | None = None, referer: str | None = None, title: str | None = None) -> dict[str, Any]:
+                end: float | None = None, referer: str | None = None, title: str | None = None,
+                cookies: list[dict] | None = None) -> dict[str, Any]:
         url, site = self._check_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
@@ -221,8 +245,13 @@ class Downloader:
         options = {"site": site, "transcript": transcript or mode == "transcript",
                    "cover": cover or mode in {"cover", "transcript"}, "notes": notes, "start": start,
                    "end": float(end) if end is not None else None,
-                   "referer": referer or None, "title": (title or "").strip()[:200] or None}
+                   "referer": referer or None, "title": (title or "").strip()[:200] or None,
+                   "with_cookies": bool(cookies) or bool(self.settings.value.cookies_browser)}
         job = self.jobs.create("download", url, mode, options)
+        if cookies:
+            self._cookies[job.id] = cookies
+            while len(self._cookies) > 20:  # no acumular sesiones en memoria
+                self._cookies.pop(next(iter(self._cookies)))
         self.pool.submit(self._run, job.id)
         return self.jobs.get(job.id) or {}
 
@@ -232,7 +261,8 @@ class Downloader:
             return None
         o = old["options"]
         return self.enqueue(old["url"], old["mode"], o.get("transcript", False), o.get("cover", False),
-                            o.get("notes", False), o.get("start"), o.get("end"), o.get("referer"), o.get("title"))
+                            o.get("notes", False), o.get("start"), o.get("end"), o.get("referer"), o.get("title"),
+                            self._cookies.get(job_id))
 
     # ------------------------------------------------------------------- run
     def _run(self, job_id: str) -> None:
@@ -244,6 +274,8 @@ class Downloader:
         except Exception as exc:  # noqa: BLE001 - se reporta al usuario
             self.jobs.update(job_id, status="error", stage=None, speed=None, eta=None,
                              error=friendly_error(exc))
+        finally:
+            self._forget_cookies(job_id)
 
     def _target_dir(self, site: str) -> Path:
         base = self.settings.download_dir
@@ -284,7 +316,7 @@ class Downloader:
 
         self.jobs.update(job_id, status="starting", stage="Analizando enlace", progress=0.0)
         referer = options.get("referer")
-        with yt_dlp.YoutubeDL({**self._base_options(referer), "skip_download": True}) as probe:
+        with yt_dlp.YoutubeDL({**self._base_options(referer), **self._auth_options(job_id), "skip_download": True}) as probe:
             probe_info = probe.extract_info(url, download=False)
         self.jobs.update(job_id, title=(probe_info.get("title") or probe_info.get("description") or "")[:180] or None,
                          uploader=probe_info.get("uploader") or probe_info.get("creator"),
@@ -322,6 +354,7 @@ class Downloader:
             template = template.replace("%(title).80s", literal or "%(title).80s")
         opts: dict[str, Any] = {
             **self._base_options(referer),
+            **self._auth_options(job_id),
             **self._format_options(mode, caps["ffmpeg"]),
             "outtmpl": str(out_dir / template),
             "progress_hooks": [progress_hook],
@@ -418,7 +451,7 @@ class Downloader:
         if source is None:
             tmp_dir = out_dir / ".tmp" / job_id
             tmp_dir.mkdir(parents=True, exist_ok=True)
-            with yt_dlp.YoutubeDL({**self._base_options(), "format": "bestaudio/best",
+            with yt_dlp.YoutubeDL({**self._base_options(), **self._auth_options(job_id), "format": "bestaudio/best",
                                    "outtmpl": str(tmp_dir / "audio.%(ext)s")}) as ydl:
                 info = ydl.extract_info(url, download=True)
                 source = Path(info["requested_downloads"][0]["filepath"])

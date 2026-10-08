@@ -323,14 +323,14 @@ let prevStatus = new Map();
 let lastJobs = [];
 
 const STATUS = { queued: "En cola", starting: "Preparando", downloading: "Trabajando", processing: "Procesando", done: "Listo", error: "Error", cancelled: "Cancelado" };
-const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web", trim: "Recorte" };
+const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web", trim: "Recorte", record: "Grabación" };
 const ACTIVE = new Set(["queued", "starting", "downloading", "processing"]);
 
 function jobCard(job) {
   const card = h("div", { class: "job", "data-id": job.id });
   card.append(
     h("div", { class: "job-top" },
-      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : "download")),
+      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : job.kind === "record" ? "play" : "download")),
       h("div", { class: "job-main" }, h("div", { class: "job-title" }), h("div", { class: "job-sub" }))),
     h("div", { class: "track" }, h("div", { class: "bar" })),
     h("div", { class: "job-state" }, h("span", { class: "js-left" }), h("span", { class: "js-right" })),
@@ -370,7 +370,7 @@ function updateJobCard(card, job) {
     actions.append(btn("Ver", "play", () => openItem(jobAsItem(job)), "primary"));
     actions.append(btn("Carpeta", "folder", () => revealPath(relPath(job.filename || job.files[0]))));
   }
-  if (job.status === "error" || job.status === "cancelled") actions.append(btn("Reintentar", "retry", () => post(`/api/jobs/${job.id}/retry`).then(refreshJobs).catch((e) => toast(e.message, "error"))));
+  if ((job.status === "error" || job.status === "cancelled") && job.kind !== "record") actions.append(btn("Reintentar", "retry", () => post(`/api/jobs/${job.id}/retry`).then(refreshJobs).catch((e) => toast(e.message, "error"))));
   if (!ACTIVE.has(job.status)) actions.append(btn("Quitar", "x", () => api(`/api/jobs/${job.id}`, { method: "DELETE" }).then(refreshJobs), "ghost"));
 }
 
@@ -557,7 +557,7 @@ async function loadSettings() {
   try {
     const s = await api("/api/settings");
     $("#s-dir").value = s.download_dir; $("#s-langs").value = s.subtitle_langs.join(", ");
-    $("#s-site").checked = s.organize_by_site; $("#s-h264").checked = s.prefer_h264; $("#s-other").checked = s.allow_other_sites;
+    $("#s-site").checked = s.organize_by_site; $("#s-h264").checked = s.prefer_h264; $("#s-other").checked = s.allow_other_sites; $("#s-cookies").value = s.cookies_browser || "";
     renderSystem();
   } catch (err) { toast(err.message, "error"); }
 }
@@ -582,7 +582,7 @@ $("#s-save").addEventListener("click", async () => {
   try {
     await api("/api/settings", { method: "PUT", body: JSON.stringify({
       download_dir: $("#s-dir").value.trim(), subtitle_langs: $("#s-langs").value.split(",").map((x) => x.trim()).filter(Boolean),
-      organize_by_site: $("#s-site").checked, prefer_h264: $("#s-h264").checked, allow_other_sites: $("#s-other").checked }) });
+      organize_by_site: $("#s-site").checked, prefer_h264: $("#s-h264").checked, allow_other_sites: $("#s-other").checked, cookies_browser: $("#s-cookies").value }) });
     await initHealth(); toast("Ajustes guardados.", "ok");
   } catch (err) { toast(err.message, "error"); }
 });

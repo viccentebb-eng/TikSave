@@ -168,6 +168,18 @@
           <label class="field">Idiomas de subtítulos (por prioridad, separados por coma)
             <input id="s-langs" type="text" placeholder="es, en">
           </label>
+          <label class="field">Usar mis cookies para contenido con login
+            <select id="s-cookies">
+              <option value="">No usar cookies</option>
+              <option value="firefox">Firefox (recomendado)</option>
+              <option value="chrome">Chrome</option>
+              <option value="edge">Edge</option>
+              <option value="brave">Brave</option>
+              <option value="opera">Opera</option>
+              <option value="vivaldi">Vivaldi</option>
+            </select>
+            <small class="muted">TikSave lee la sesión de ese navegador en tu computadora para bajar videos que piden iniciar sesión y capturar páginas privadas. No se guarda ni se envía a ningún lado. En Chrome/Edge puede fallar por el cifrado de Windows: ahí usa la extensión, que envía tu sesión directamente.</small>
+          </label>
           <label class="switch"><input type="checkbox" id="s-site"><span>Organizar en carpetas por plataforma (TikTok, YouTube…)</span></label>
           <label class="switch"><input type="checkbox" id="s-other"><span>Permitir descargar de cualquier sitio público <small>(además de TikTok, YouTube, Instagram…; usa los extractores de yt-dlp y un modo genérico para videos sueltos y streams; no funciona con contenido con DRM ni con login)</small></span></label>
           <label class="switch"><input type="checkbox" id="s-h264"><span>Compatibilidad máxima: preferir H.264 <small>(abre en cualquier reproductor; algunos videos de TikTok bajan de 1080p a 576p)</small></span></label>
@@ -182,7 +194,7 @@
           </div>
           <pre id="s-update-out" class="log hidden"></pre>
         </div>
-        <p class="fine pad">TikSave <span id="ver"></span> · Todo corre en tu computadora (127.0.0.1). Úsalo solo con contenido público que tengas derecho a guardar.</p>
+        <p class="fine pad">TikSave <span id="ver"></span> · Todo corre en tu computadora (127.0.0.1). Úsalo solo con contenido que tengas derecho a guardar.</p>
       </section>
     </main>
 

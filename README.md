@@ -52,8 +52,14 @@ Qué hace:
 - **Capturar esta página:** guarda lo que ves ahora (con tu sesión) como Markdown, Word, PDF o HTML; sirve para ChatGPT
   y Gemini, con fórmulas, código e imágenes.
 
-Límites: no descarga contenido con DRM (Netflix, Disney+…) ni videos que exigen iniciar sesión en el servidor del sitio;
-un video servido por `blob:` solo se puede guardar si el sitio lo entiende yt-dlp o si se detecta su stream.
+- **Tu sesión:** al descargar, la extensión adjunta las cookies del sitio (interruptor *Usar mi sesión* en el popup), así que
+  funcionan videos de cuentas, miembros o contenido con login.
+- **Grabar mientras se reproduce:** para videos `blob:` que no se pueden bajar de otra forma, el menú del botón flotante tiene
+  *Grabar mientras se reproduce* / *Grabar desde el inicio*. Graba en tiempo real (dura lo que dura el video, hay que dejarlo
+  reproducir), envía el video a TikSave en trozos y lo guarda como MP4. Sale en la cola como *Grabación*.
+
+Límites: no descarga ni graba contenido con DRM (Netflix, Disney+…: la grabación sale en negro); en Chrome/Edge para Windows la
+lectura directa de cookies del navegador puede fallar por el cifrado, por eso la extensión las envía ella misma.
 
 ## Variables de entorno
 
@@ -73,7 +79,11 @@ pytest
 
 - El servidor solo acepta peticiones de la propia interfaz y de la extensión (comprueba `Host` y `Origin`), así que otra web abierta en tu navegador no puede ordenarle nada.
 - El capturador bloquea direcciones locales/privadas (SSRF), valida cada redirección, limita tamaños y respeta `robots.txt` al seguir enlaces.
-- No usa cookies ni cuentas: solo contenido público. Úsalo únicamente con contenido que tengas derecho a guardar.
+- **Tu sesión (cookies):** para videos y páginas que exigen login, TikSave puede usar tus cookies de dos maneras: leyéndolas de
+  tu navegador (Ajustes → *Usar mis cookies*, ideal con Firefox) o recibiéndolas de la extensión por 127.0.0.1 solo para ese
+  trabajo. Viajan únicamente a tu propia computadora, se escriben en un archivo temporal privado que se borra al terminar y nunca
+  van al historial ni a los ajustes. Se desactivan en el popup de la extensión o dejando el ajuste en *No usar cookies*.
+- Úsalo únicamente con contenido que tengas derecho a guardar.
 
 ## Licencia
 

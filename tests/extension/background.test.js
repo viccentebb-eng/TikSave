@@ -10,7 +10,8 @@ globalThis.browser = {
   tabs: { onUpdated: listeners(), onRemoved: listeners(), sendMessage: noop },
   permissions: { onAdded: listeners(), contains: async () => true },
   scripting: { getRegisteredContentScripts: async () => [], registerContentScripts: async () => {} },
-  storage: { session: { get: async () => ({}), set: async () => {}, remove: async () => {} }, local: {}, onChanged: listeners() },
+  storage: { session: { get: async () => ({}), set: async () => {}, remove: async () => {} }, local: { get: async (d) => ({ ...d, ...(globalThis.__store || {}) }) }, onChanged: listeners() },
+  cookies: { getAll: async ({ url }) => (globalThis.__cookies || []).filter((c) => url.includes(c.domain.replace(/^\./, ''))) },
   action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
 };
 const calls = [];
@@ -62,6 +63,43 @@ test("save envia titulo, modo, inicio y referer al servidor", async () => {
   assert.equal(res.ok, true);
   const body = calls.find((c) => c.url.endsWith("/api/download")).body;
   assert.deepEqual(body, { url: "https://cdn.otro.com/v.mp4", mode: "video", title: "Mi video", referer: "https://otro.com/p", start: 42 });
+});
+
+test("save adjunta las cookies del sitio (sin duplicados) y respeta el interruptor", async () => {
+  globalThis.__cookies = [
+    { name: "sid", value: "abc", domain: ".otro.com", path: "/", secure: true, httpOnly: true, expirationDate: 1900000000 },
+    { name: "x", value: "1", domain: "cdn.otro.com", path: "/", secure: false, httpOnly: false },
+    { name: "ajena", value: "no", domain: "bank.com", path: "/" },
+  ];
+  calls.length = 0;
+  await bg.handle({ type: "save", mode: "video", directSrc: "https://cdn.otro.com/v.mp4", pageUrl: "https://otro.com/p", title: "T" },
+    { id: "x", tab: { id: 7, url: "https://otro.com/p", title: "T" } });
+  let body = calls.find((c) => c.url.endsWith("/api/download")).body;
+  assert.deepEqual(body.cookies.map((c) => c.name).sort(), ["sid", "x"]);   // solo cookies de los sitios involucrados
+  assert.equal(body.cookies.find((c) => c.name === "sid").httpOnly, true);
+  globalThis.__store = { useCookies: false };
+  calls.length = 0;
+  await bg.handle({ type: "save", mode: "video", directSrc: "https://cdn.otro.com/v.mp4", pageUrl: "https://otro.com/p" },
+    { id: "x", tab: { id: 7, url: "https://otro.com/p" } });
+  body = calls.find((c) => c.url.endsWith("/api/download")).body;
+  assert.equal(body.cookies, undefined);
+  globalThis.__store = {}; globalThis.__cookies = [];
+});
+
+test("desde el popup (sin sender.tab) usa la URL explicita", async () => {
+  calls.length = 0;
+  const res = await bg.handle({ type: "save", explicitUrl: "https://www.tiktok.com/@a/video/1", mode: "mp3", pageUrl: "https://www.tiktok.com/@a/video/1", tabId: 3 }, { id: "x" });
+  assert.equal(res.ok, true);
+  assert.equal(calls.find((c) => c.url.endsWith("/api/download")).body.mode, "mp3");
+});
+
+test("mensajes del grabador llegan a la API", async () => {
+  calls.length = 0;
+  await bg.handle({ type: "rec-start", title: "T", pageUrl: "https://a.com" }, { id: "x" });
+  await bg.handle({ type: "rec-chunk", id: "r1", seq: 0, data: "AAAA" }, { id: "x" });
+  await bg.handle({ type: "rec-finish", id: "r1" }, { id: "x" });
+  assert.deepEqual(calls.map((c) => c.url.replace("http://127.0.0.1:8173", "")), ["/api/recordings", "/api/recordings/r1/chunk", "/api/recordings/r1/finish"]);
+  assert.deepEqual(calls[1].body, { seq: 0, data: "AAAA" });
 });
 
 test("rechaza mensajes de otros remitentes", async () => {

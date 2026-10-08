@@ -9,6 +9,16 @@ class InspectRequest(BaseModel):
     url: str
 
 
+class CookieItem(BaseModel):
+    name: str = Field(max_length=500)
+    value: str = Field(default="", max_length=8000)
+    domain: str = Field(max_length=300)
+    path: str = Field(default="/", max_length=500)
+    secure: bool = False
+    httpOnly: bool = False
+    expires: float | None = None
+
+
 class DownloadRequest(BaseModel):
     url: str
     mode: DownloadMode = "video"
@@ -19,6 +29,7 @@ class DownloadRequest(BaseModel):
     end: float | None = Field(default=None, gt=0)
     referer: str | None = Field(default=None, max_length=2000)  # pagina donde se vio el video (CDNs lo exigen)
     title: str | None = Field(default=None, max_length=300)  # titulo de la pagina, para nombrar archivos sueltos
+    cookies: list[CookieItem] | None = Field(default=None, max_length=600)  # sesion del navegador (solo para este trabajo)
 
 
 class TrimRequest(BaseModel):
@@ -63,6 +74,7 @@ class SettingsUpdate(BaseModel):
     organize_by_site: bool | None = None
     prefer_h264: bool | None = None
     allow_other_sites: bool | None = None
+    cookies_browser: str | None = None
 
 
 class PathsRequest(BaseModel):
@@ -71,3 +83,17 @@ class PathsRequest(BaseModel):
 
 class PathRequest(BaseModel):
     path: str | None = None
+
+
+class RecordingStart(BaseModel):
+    title: str = Field(default="", max_length=300)
+    page_url: str = Field(default="", max_length=2000)
+
+
+class RecordingChunk(BaseModel):
+    seq: int = Field(ge=0)
+    data: str = Field(max_length=16_000_000)  # base64
+
+
+class RecordingFinish(BaseModel):
+    to_mp4: bool = True

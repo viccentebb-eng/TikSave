@@ -43,6 +43,8 @@
         <button class="item" data-mode="video-here" id="here" role="menuitem">Desde aquí hasta el final<small id="here-t"></small></button>
         <button class="item" data-mode="mp3" role="menuitem">Solo audio (MP3)</button>
         <button class="item" data-mode="transcript" role="menuitem">Kit para IA<small>texto + ficha + portada</small></button>
+        <button class="item" data-mode="record" role="menuitem">Grabar mientras se reproduce<small>para videos que no se pueden bajar (blob)</small></button>
+        <button class="item" data-mode="record-start" role="menuitem">Grabar desde el inicio</button>
       </div>
     </div>`;
   const $ = (id) => root.getElementById(id);
@@ -109,6 +111,7 @@
 
   btn.addEventListener("click", (ev) => {
     if (!ev.isTrusted) return; // ignora clics sinteticos de scripts de la pagina
+    if (rec) { rec.stop(); return; } // durante una grabacion, el boton la detiene
     menuOpen ? closeMenu() : openMenu();
   });
   menu.addEventListener("click", async (ev) => {
@@ -116,6 +119,11 @@
     const item = ev.target.closest(".item");
     if (!item || !current) return;
     const video = current;
+    if (item.dataset.mode === "record" || item.dataset.mode === "record-start") {
+      closeMenu();
+      startRecording(video, item.dataset.mode === "record-start");
+      return;
+    }
     const here = item.dataset.mode === "video-here";
     const msg = {
       type: "save", mode: here ? "video" : item.dataset.mode, start: here ? Math.floor(video.currentTime) : 0,
@@ -132,6 +140,80 @@
       setState(/fetch|conect|Failed/i.test(err.message) ? "Abre TikSave primero" : err.message.slice(0, 60), "err", 4500);
     }
   });
+
+
+  // ---------- grabador en tiempo real (blob:/MSE) ----------
+  let rec = null;
+  const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+  const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  async function startRecording(video, fromStart) {
+    const capture = video.captureStream || video.mozCaptureStream;
+    if (!capture || typeof MediaRecorder === "undefined") { setState("Este navegador no puede grabar", "err", 4500); return; }
+    let stream;
+    try { stream = capture.call(video); } catch { setState("El sitio bloquea la grabacion", "err", 4500); return; }
+    const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+    let job;
+    try {
+      job = await ext.runtime.sendMessage({ type: "rec-start", title: document.title, pageUrl: location.href });
+      if (!job || job.error) throw new Error(job?.error || "Sin respuesta");
+    } catch (err) {
+      setState(/fetch|conect|Failed/i.test(err.message) ? "Abre TikSave primero" : err.message.slice(0, 60), "err", 4500);
+      return;
+    }
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
+    let seq = 0, chain = Promise.resolve(), stopped = false, cancelled = false;
+    const started = Date.now();
+    const ticker = setInterval(() => setState(`● Grabando ${fmtTime((Date.now() - started) / 1000)} · clic para detener`, "err"), 1000);
+
+    recorder.ondataavailable = (e) => {
+      if (!e.data || !e.data.size) return;
+      chain = chain.then(async () => {
+        if (cancelled) return;
+        const res = await ext.runtime.sendMessage({ type: "rec-chunk", id: job.id, seq: seq++, data: await blobToBase64(e.data) });
+        if (!res || res.error || res.cancelled) { cancelled = true; stop(); }
+      }).catch(() => { cancelled = true; stop(); });
+    };
+    recorder.onstop = async () => {
+      clearInterval(ticker);
+      await chain;
+      video.removeEventListener("ended", stop);
+      rec = null;
+      if (cancelled) { setState("Grabacion cancelada", "", 3000); return; }
+      setState("Guardando grabacion…");
+      try {
+        const res = await ext.runtime.sendMessage({ type: "rec-finish", id: job.id });
+        if (!res || res.error) throw new Error(res?.error || "Sin respuesta");
+        activeJob = job.id; // el fondo reenviara el progreso por /api/jobs
+        setState("Procesando…");
+        pollRecording(job.id);
+      } catch (err) { setState(String(err.message).slice(0, 60), "err", 5000); }
+    };
+    function stop() { if (!stopped) { stopped = true; if (recorder.state !== "inactive") recorder.stop(); } }
+
+    rec = { stop };
+    video.addEventListener("ended", stop);
+    recorder.start(2000);
+    try { if (fromStart) video.currentTime = 0; await video.play(); } catch { /* el usuario puede darle play */ }
+    setState("● Grabando 0:00 · clic para detener", "err");
+  }
+
+  async function pollRecording(id) {
+    for (let i = 0; i < 1800; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (activeJob !== id) return;
+      try {
+        const res = await ext.runtime.sendMessage({ type: "job-status", id });
+        if (res?.status === "done") { setState("Guardado ✓", "done", 3500); activeJob = null; return; }
+        if (res?.status === "error") { setState((res.error || "Falló").slice(0, 60), "err", 6000); activeJob = null; return; }
+      } catch { return; }
+    }
+  }
 
   let stateTimer = null;
   function setState(text, cls = "", ms = 0) {
