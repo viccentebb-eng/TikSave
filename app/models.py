@@ -27,6 +27,7 @@ class DownloadRequest(BaseModel):
     notes: bool = False
     start: float | None = Field(default=None, ge=0)
     end: float | None = Field(default=None, gt=0)
+    subs: bool = False  # bajar tambien los subtitulos (.srt) junto al archivo
     referer: str | None = Field(default=None, max_length=2000)  # pagina donde se vio el video (CDNs lo exigen)
     title: str | None = Field(default=None, max_length=300)  # titulo de la pagina, para nombrar archivos sueltos
     cookies: list[CookieItem] | None = Field(default=None, max_length=600)  # sesion del navegador (solo para este trabajo)
@@ -45,6 +46,7 @@ class BatchRequest(BaseModel):
     transcript: bool = False
     cover: bool = False
     notes: bool = False
+    subs: bool = False
 
 
 class ExpandRequest(BaseModel):

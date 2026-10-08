@@ -55,6 +55,9 @@ def friendly_error(value: Exception | str) -> str:
                     "install-windows.bat (o: pip install -U \"yt-dlp[default,curl-cffi]\") y reinicia TikSave.")
         return ("TikTok rechazo la peticion. Pulsa Ajustes > Actualizar yt-dlp y reintenta; "
                 "si persiste, puede ser una restriccion temporal de tu conexion.")
+    if "429" in low or "too many requests" in low:
+        return ("El sitio limito las peticiones por un momento (demasiadas en poco tiempo). Espera unos minutos y vuelve "
+                "a intentar.")
     if "cookie" in low and any(m in low for m in ("could not", "failed", "decrypt", "database", "locked", "no pude leer")):
         return ("No pude leer las cookies de tu navegador (cierra el navegador o prueba con Firefox; en Chrome/Edge el "
                 "cifrado de Windows puede impedirlo). Tambien puedes descargar desde la extension, que envia tu sesion.")
@@ -225,16 +228,18 @@ class Downloader:
             "webpage_url": info.get("webpage_url") or url,
         }
 
-    def expand(self, url: str, limit: int = 20) -> list[dict[str, str]]:
-        """Perfil / lista -> enlaces individuales (los ultimos `limit`)."""
+    def expand(self, url: str, limit: int = 20) -> dict[str, Any]:
+        """Perfil / canal / lista -> contenido listado con miniatura y duracion (los ultimos `limit`)."""
         url, _ = self._check_url(url)
         opts = {**self._base_options(), **self._auth_options(), "noplaylist": False, "extract_flat": "in_playlist",
                 "playlistend": max(1, min(limit, 100)), "skip_download": True}
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
         entries = info.get("entries")
+        meta = {"title": info.get("title"), "uploader": info.get("uploader") or info.get("channel")}
         if entries is None:
-            return [{"url": url, "title": info.get("title") or url}]
+            return {**meta, "entries": [{"url": url, "title": info.get("title") or url,
+                                        "thumbnail": info.get("thumbnail"), "duration": info.get("duration")}]}
         out = []
         for entry in entries:
             if not entry:
@@ -244,14 +249,17 @@ class Downloader:
                 link, _ = self._check_url(link or "")
             except ValueError:
                 continue
-            out.append({"url": link, "title": entry.get("title") or entry.get("id") or link})
-        return out[:limit]
+            thumb = entry.get("thumbnail") or next(iter(reversed(entry.get("thumbnails") or [])), {}).get("url")
+            out.append({"url": link, "title": (entry.get("title") or entry.get("id") or link)[:200],
+                        "thumbnail": thumb if thumb and str(thumb).startswith("https://") else None,
+                        "duration": entry.get("duration")})
+        return {**meta, "entries": out[:limit]}
 
     # --------------------------------------------------------------- enqueue
     def enqueue(self, url: str, mode: str = "video", transcript: bool = False,
                 cover: bool = False, notes: bool = False, start: float | None = None,
                 end: float | None = None, referer: str | None = None, title: str | None = None,
-                cookies: list[dict] | None = None) -> dict[str, Any]:
+                cookies: list[dict] | None = None, subs: bool = False) -> dict[str, Any]:
         url, site = self._check_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
@@ -278,7 +286,8 @@ class Downloader:
                    "cover": cover or mode in {"cover", "transcript"}, "notes": notes, "start": start,
                    "end": float(end) if end is not None else None,
                    "referer": referer or None, "title": (title or "").strip()[:200] or None,
-                   "with_cookies": bool(cookies) or self.settings.value.cookies_browser not in ("", None)}
+                   "with_cookies": bool(cookies) or self.settings.value.cookies_browser not in ("", None),
+                   "subs": bool(subs)}
         job = self.jobs.create("download", url, mode, options)
         if cookies:
             self._cookies[job.id] = cookies
@@ -393,7 +402,8 @@ class Downloader:
             "postprocessor_hooks": [pp_hook],
         }
         sub_langs: list[str] = []
-        if want_transcript or want_notes:
+        want_subs = bool(options.get("subs"))
+        if want_transcript or want_notes or want_subs:
             sub_langs = pick_subtitle_langs(probe_info, self.settings.value.subtitle_langs)
             if sub_langs:
                 opts.update({"writesubtitles": True, "writeautomaticsub": True,

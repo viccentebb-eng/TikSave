@@ -110,7 +110,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     @api.post("/api/expand")
     def expand(payload: ExpandRequest) -> dict:
         try:
-            return {"entries": downloader.expand(payload.url, payload.limit)}
+            return downloader.expand(payload.url, payload.limit)
         except ValueError as exc:
             raise bad(exc) from exc
         except Exception as exc:  # noqa: BLE001
@@ -119,9 +119,10 @@ def create_app(home: Path | None = None) -> FastAPI:
     @api.post("/api/download", status_code=202)
     def download(payload: DownloadRequest) -> dict:
         try:
-            return downloader.enqueue(payload.url, payload.mode, payload.transcript, payload.cover, payload.notes,
-                                      payload.start, payload.end, payload.referer, payload.title,
-                                      [c.model_dump() for c in payload.cookies] if payload.cookies else None)
+            return downloader.enqueue(
+                payload.url, payload.mode, payload.transcript, payload.cover, payload.notes,
+                start=payload.start, end=payload.end, referer=payload.referer, title=payload.title,
+                cookies=[c.model_dump() for c in payload.cookies] if payload.cookies else None, subs=payload.subs)
         except ValueError as exc:
             raise bad(exc) from exc
 
@@ -130,7 +131,7 @@ def create_app(home: Path | None = None) -> FastAPI:
         created, rejected = [], []
         for url in dict.fromkeys(u.strip() for u in payload.urls if u.strip()):
             try:
-                created.append(downloader.enqueue(url, payload.mode, payload.transcript, payload.cover, payload.notes))
+                created.append(downloader.enqueue(url, payload.mode, payload.transcript, payload.cover, payload.notes, subs=payload.subs))
             except ValueError as exc:
                 rejected.append({"url": url, "error": str(exc)})
         if not created:

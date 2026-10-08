@@ -159,6 +159,7 @@ const urlsEl = $("#urls");
 let sites = {};
 let anySite = true;
 let previewTimer = null;
+let explored = null, explorerSeq = 0;
 let lastPreviewed = "";
 let previewDuration = 0;
 let rangeDl = null;
@@ -177,9 +178,19 @@ function extractUrls(text) {
 }
 const CHAT_SITES = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai"];
 function currentMode() { return $('input[name="mode"]:checked').value; }
+const IG_RESERVED = new Set(["p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct", "about"]);
 function isProfile(url) {
-  return /^https?:\/\/(www\.)?tiktok\.com\/@[\w.\-]+\/?(\?.*)?$/i.test(url)
-    || /youtube\.com\/(playlist\?|@[\w.\-]+(\/videos)?\/?$|channel\/|c\/)/i.test(url);
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  const host = u.hostname.replace(/^www\./, "").toLowerCase();
+  const parts = u.pathname.split("/").filter(Boolean);
+  if (host === "tiktok.com") return parts.length === 1 && parts[0].startsWith("@");
+  if (host === "youtube.com" || host === "m.youtube.com") {
+    return u.pathname.startsWith("/playlist") || /^@|^channel$|^c$|^user$/.test(parts[0] || "") || parts[0]?.startsWith("@");
+  }
+  if (host === "instagram.com") return parts.length === 1 && !IG_RESERVED.has(parts[0]) || (parts.length === 2 && parts[1] === "reels");
+  if (host === "facebook.com") return parts.length === 1 || (parts.length === 2 && parts[1] === "videos");
+  return false;
 }
 
 function updateDownloadUi() {
@@ -205,7 +216,8 @@ function updateDownloadUi() {
   $("#x-cover").disabled = coverOnly; if (coverOnly) $("#x-cover").checked = true;
   $("#go").disabled = valid.length === 0;
   $("#go-label").textContent = valid.length > 1 ? `Descargar ${valid.length} enlaces` : "Descargar";
-  $("#profile-box").classList.toggle("hidden", !(valid.length === 1 && isProfile(valid[0])));
+  const profileUrl = valid.length === 1 && isProfile(valid[0]) ? valid[0] : null;
+  if (profileUrl) loadExplorer(profileUrl); else { $("#profile-box").classList.add("hidden"); explored = null; }
   const trimmable = valid.length === 1 && !isProfile(valid[0]) && previewDuration >= 3 && ["video", "mp3", "audio"].includes(mode);
   $("#trim-box").classList.toggle("hidden", !trimmable);
 
@@ -223,7 +235,7 @@ function updateDownloadUi() {
 async function loadPreview(url) {
   lastPreviewed = url;
   try {
-    const d = await post("/api/inspect", { url });
+    const d = await withTimeout(post("/api/inspect", { url }), 40000);
     if (lastPreviewed !== url) return;
     $("#thumb").src = d.thumbnail || "";
     $("#thumb").style.visibility = d.thumbnail ? "visible" : "hidden";
@@ -308,18 +320,59 @@ $("#kit").addEventListener("click", () => {
   toast("Kit para IA: transcripción + ficha Markdown + portada.");
 });
 
-$("#profile-load").addEventListener("click", async (ev) => {
-  const btn = ev.currentTarget, url = extractUrls(urlsEl.value).filter(hostOk)[0];
-  btn.disabled = true; btn.textContent = "Cargando…";
+// ---------- explorar perfil / canal: lista con casillas ----------
+function withTimeout(promise, ms = 45000) {
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("Tardó demasiado. El sitio puede estar limitando las peticiones; intenta de nuevo en un rato.")), ms))]);
+}
+async function loadExplorer(url) {
+  if (explored?.url === url) return;
+  const seq = ++explorerSeq;
+  const box = $("#profile-box");
+  box.classList.remove("hidden");
+  box.replaceChildren(h("div", { class: "fine" }, "Buscando el contenido de este perfil…"));
   try {
-    const { entries } = await post("/api/expand", { url, limit: Number($("#profile-limit").value) || 20 });
-    if (!entries.length) throw new Error("No encontré videos en ese enlace.");
-    urlsEl.value = entries.map((e) => e.url).join("\n");
-    toast(`${entries.length} videos cargados. Revisa el formato y pulsa Descargar.`, "ok");
-  } catch (err) { toast(err.message, "error"); }
-  btn.disabled = false; btn.textContent = "Cargar videos";
-  updateDownloadUi();
-});
+    const data = await withTimeout(post("/api/expand", { url, limit: Number($("#profile-limit")?.value) || 30 }));
+    if (seq !== explorerSeq) return;
+    explored = { url, items: data.entries.map((e) => ({ ...e, on: true })), title: data.title || data.uploader || url };
+    renderExplorer();
+  } catch (err) {
+    if (seq !== explorerSeq) return;
+    explored = null;
+    box.replaceChildren(h("div", { class: "bad" }, err.message));
+  }
+}
+function renderExplorer() {
+  const box = $("#profile-box");
+  const items = explored.items;
+  const chosen = () => items.filter((i) => i.on);
+  const count = h("b", {}, "");
+  const sync = () => { count.textContent = `${chosen().length} de ${items.length} seleccionados`; go.disabled = chosen().length === 0; };
+  const rows = items.map((it) => {
+    const cb = h("input", { type: "checkbox", checked: it.on, onchange: (e) => { it.on = e.target.checked; sync(); } });
+    const thumb = it.thumbnail
+      ? h("img", { src: it.thumbnail, alt: "", loading: "lazy", referrerpolicy: "no-referrer", class: "ex-thumb" })
+      : h("div", { class: "ex-thumb ex-none" }, "▶");
+    return h("label", { class: "ex-row" }, cb, thumb,
+      h("div", { class: "ex-text" }, h("div", { class: "ex-title" }, it.title), h("div", { class: "muted" }, it.duration ? fmtDur(it.duration) : "")));
+  });
+  const go = h("button", { class: "btn small primary", onclick: async () => {
+    const urls = chosen().map((i) => i.url);
+    const mode = currentMode();
+    try {
+      const res = await post("/api/download/batch", { urls, mode, transcript: $("#x-transcript").checked, notes: $("#x-notes").checked,
+        cover: $("#x-cover").checked, subs: $("#x-subs").checked });
+      toast(`${res.jobs.length} descarga${res.jobs.length === 1 ? "" : "s"} en cola.`, "ok");
+      refreshJobs();
+    } catch (err) { toast(err.message, "error"); }
+  } }, icon("download"), "Descargar seleccionados");
+  box.replaceChildren(
+    h("div", { class: "ex-head" }, h("div", {}, h("strong", {}, explored.title), h("div", { class: "muted" }, `${items.length} elementos encontrados`)),
+      h("div", { class: "ex-tools" }, h("button", { class: "btn small ghost", onclick: () => { items.forEach((i) => (i.on = true)); renderExplorer(); } }, "Todo"),
+        h("button", { class: "btn small ghost", onclick: () => { items.forEach((i) => (i.on = false)); renderExplorer(); } }, "Ninguno"))),
+    h("div", { class: "ex-list" }, ...rows),
+    h("div", { class: "ex-foot" }, count, go));
+  sync();
+}
 
 $("#go").addEventListener("click", async () => {
   const urls = extractUrls(urlsEl.value).filter(hostOk);
@@ -327,7 +380,7 @@ $("#go").addEventListener("click", async () => {
   const btn = $("#go"); btn.disabled = true;
   try {
     const mode = currentMode();
-    const extras = { transcript: $("#x-transcript").checked, notes: $("#x-notes").checked, cover: $("#x-cover").checked };
+    const extras = { transcript: $("#x-transcript").checked, notes: $("#x-notes").checked, cover: $("#x-cover").checked, subs: $("#x-subs").checked };
     const clip = urls.length === 1 && !$("#trim-box").classList.contains("hidden") && $("#trim-on").checked
       && rangeDl && !rangeDl.isFull() ? rangeDl.get() : null;
     if (clip) {

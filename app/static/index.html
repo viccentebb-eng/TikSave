@@ -59,13 +59,7 @@
           </div>
           <div id="url-hint" class="hint"></div>
 
-          <div id="profile-box" class="notice hidden">
-            <div><strong>Parece un perfil o una lista.</strong> <span class="muted">Puedo traer sus últimos videos para descargarlos juntos.</span></div>
-            <div class="row">
-              <label class="inline">Últimos <input id="profile-limit" type="number" min="1" max="100" value="20"> videos</label>
-              <button id="profile-load" class="btn small">Cargar videos</button>
-            </div>
-          </div>
+          <div id="profile-box" class="notice hidden"></div>
 
           <div id="trim-box" class="trim hidden">
             <label class="switch"><input type="checkbox" id="trim-on"><span><b>Recortar</b> — bajar solo el tramo que necesito</span></label>
@@ -96,6 +90,7 @@
             <label class="chip"><input type="checkbox" id="x-transcript"><span>Transcripción (.txt)</span></label>
             <label class="chip"><input type="checkbox" id="x-notes"><span>Ficha para IA (.md)</span></label>
             <label class="chip"><input type="checkbox" id="x-cover"><span>Portada (.jpg)</span></label>
+            <label class="chip"><input type="checkbox" id="x-subs"><span>Subtítulos (.srt)</span></label>
           </div>
           <div class="row spread">
             <button id="kit" class="btn ghost" title="Texto + ficha Markdown, listo para pegar en Claude o ChatGPT"><svg class="ic"><use href="#i-sparkle"/></svg>Kit para IA</button>

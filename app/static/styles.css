@@ -187,3 +187,15 @@ body.selecting .lib-card.sel .check { background:var(--accent2); border-color:va
 .preview-page { display:grid; grid-template-columns:120px 1fr; }
 .preview-page img { width:120px; height:auto; min-height:68px; max-height:120px; object-fit:cover; }
 .lib-thumb img.thumb-media { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+
+/* explorar perfil */
+.ex-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.ex-tools { display:flex; gap:6px; }
+.ex-list { margin-top:10px; max-height:360px; overflow:auto; display:grid; gap:6px; }
+.ex-row { display:grid; grid-template-columns:20px 96px 1fr; gap:10px; align-items:center; padding:6px; border-radius:10px; border:1px solid var(--line); background:var(--bg2); cursor:pointer; }
+.ex-row input { accent-color:var(--accent); }
+.ex-thumb { width:96px; height:54px; object-fit:cover; border-radius:8px; background:var(--card2); display:block; }
+.ex-none { display:grid; place-items:center; color:var(--muted); }
+.ex-title { font-weight:650; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ex-text { min-width:0; }
+.ex-foot { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
