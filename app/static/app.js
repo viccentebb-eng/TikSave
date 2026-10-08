@@ -557,6 +557,59 @@ $("#lib-filter").addEventListener("click", (e) => {
 });
 $("#lib-open").addEventListener("click", () => revealPath(null));
 
+// ---------- subir archivos locales ----------
+function uploadOne(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      const data = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(typeof data.detail === "string" ? `${file.name}: ${data.detail}` : `${file.name}: error ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error(`${file.name}: no se pudo conectar con TikSave.`));
+    const form = new FormData();
+    form.append("file", file, file.name);
+    xhr.send(form);
+  });
+}
+async function uploadFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  const box = $("#lib-drop");
+  box.classList.remove("hidden");
+  const failed = [];
+  let done = 0;
+  for (const file of list) {
+    box.replaceChildren(h("div", {}, `Subiendo ${file.name} (${done + 1} de ${list.length})…`),
+      h("div", { class: "track" }, h("div", { class: "bar", id: "up-bar", style: "width:0%" })));
+    try {
+      await uploadOne(file, (p) => { const bar = $("#up-bar"); if (bar) bar.style.width = `${Math.round(p * 100)}%`; });
+      done++;
+    } catch (err) { failed.push(err.message); }
+  }
+  box.classList.add("hidden"); box.replaceChildren();
+  if (done) toast(`${done} archivo${done === 1 ? "" : "s"} subido${done === 1 ? "" : "s"} a la Biblioteca.`, "ok");
+  failed.forEach((m) => toast(m, "error"));
+  loadLibrary();
+}
+$("#lib-upload").addEventListener("click", () => $("#lib-file").click());
+$("#lib-file").addEventListener("change", (e) => { uploadFiles(e.target.files); e.target.value = ""; });
+const libTab = $("#tab-library");
+let libDrag = 0;
+libTab.addEventListener("dragenter", (e) => {
+  if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault(); libDrag++; libTab.classList.add("dragging");
+});
+libTab.addEventListener("dragover", (e) => { if (libTab.classList.contains("dragging")) e.preventDefault(); });
+libTab.addEventListener("dragleave", () => { libDrag = Math.max(0, libDrag - 1); if (!libDrag) libTab.classList.remove("dragging"); });
+libTab.addEventListener("drop", (e) => {
+  if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault(); libDrag = 0; libTab.classList.remove("dragging");
+  uploadFiles(e.dataTransfer.files);
+});
+
 async function revealPath(rel) {
   try { await post("/api/open-folder", rel ? { path: rel } : {}); } catch (err) { toast(err.message, "error"); }
 }

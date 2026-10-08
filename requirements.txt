@@ -10,3 +10,4 @@ markdownify>=0.13
 playwright>=1.45
 # Exportar capturas a DOCX / EPUB con ecuaciones nativas (incluye el programa pandoc).
 pypandoc_binary>=1.13
+python-multipart>=0.0.20

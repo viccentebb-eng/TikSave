@@ -174,3 +174,8 @@ body.selecting .lib-card.sel .check { background:var(--accent2); border-color:va
 .rng-frames { position:absolute; inset:0; display:flex; opacity:.5; pointer-events:none; }
 .rng-frames img { flex:1 1 0; min-width:0; height:100%; object-fit:cover; }
 .rng-track { background:var(--card2); }
+
+/* subida de archivos */
+.upload-status { margin:-4px 0 14px; padding:10px 12px; border-radius:12px; background:var(--bg2); border:1px solid var(--line); font-size:13.5px; }
+.upload-status .track { margin:8px 0 0; }
+#tab-library.dragging .card { outline:2px dashed var(--accent2); outline-offset:6px; }

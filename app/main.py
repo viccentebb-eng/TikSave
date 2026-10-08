@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -23,6 +23,7 @@ from app.library import delete_files, list_library, open_in_os, resolve_inside
 from app.media_convert import MediaConverter
 from app.recorder import Recorder
 from app.trim import Trimmer
+from app.uploads import save_upload
 from app.models import (BatchRequest, TrimRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
                         ConvertRequest, PathRequest, PathsRequest, RecordingChunk, RecordingFinish, RecordingStart, SettingsUpdate)
 from app.security import SUPPORTED_SITES, validate_media_url
@@ -224,6 +225,16 @@ def create_app(home: Path | None = None) -> FastAPI:
             return {"deleted": delete_files(settings.download_dir, payload.paths)}
         except ValueError as exc:
             raise bad(exc, 403) from exc
+
+    @api.post("/api/upload", status_code=201)
+    def upload(file: UploadFile = File(...)) -> dict:
+        try:
+            saved = save_upload(settings.download_dir, file.filename or "archivo", file.file)
+        except ValueError as exc:
+            raise bad(exc, 413 if "límite" in str(exc) else 400) from exc
+        finally:
+            file.file.close()
+        return {"path": str(saved.relative_to(settings.download_dir)).replace("\\", "/"), "name": saved.name}
 
     @api.get("/files/{rel:path}")
     def files(rel: str) -> FileResponse:

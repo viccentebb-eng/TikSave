@@ -157,11 +157,14 @@
               <option value="recent">Más recientes</option><option value="name">Nombre (A–Z)</option><option value="size">Más pesados</option>
             </select>
             <button id="lib-select" class="btn ghost small">Seleccionar</button>
+            <button id="lib-upload" class="btn small"><svg class="ic"><use href="#i-download"/></svg>Subir archivos</button>
+            <input id="lib-file" type="file" multiple hidden accept="video/*,audio/*,image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.srt,.vtt,.html">
             <div class="seg" id="lib-filter">
               <button class="active" data-f="all">Todo</button><button data-f="video">Video</button><button data-f="audio">Audio</button><button data-f="text">Texto</button><button data-f="site">Sitios</button>
             </div>
             <button id="lib-open" class="btn ghost small"><svg class="ic"><use href="#i-folder"/></svg>Abrir carpeta</button>
           </div>
+          <div id="lib-drop" class="upload-status hidden" role="status"></div>
           <div id="lib-bulk" class="bulk hidden">
             <span id="lib-sel-count">0 seleccionados</span>
             <button id="lib-del-sel" class="btn small danger"><svg class="ic"><use href="#i-trash"/></svg>Eliminar seleccionados</button>
