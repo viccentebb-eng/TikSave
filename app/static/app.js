@@ -144,6 +144,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.ta
 // ---------- DESCARGAR ----------
 const urlsEl = $("#urls");
 let sites = {};
+let anySite = true;
 let previewTimer = null;
 let lastPreviewed = "";
 let previewDuration = 0;
@@ -151,7 +152,9 @@ let rangeDl = null;
 
 function hostOk(url) {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const parsed = new URL(url);
+    if (anySite) return /^https?:$/.test(parsed.protocol);
+    const host = parsed.hostname.toLowerCase();
     return Object.values(sites).some((domains) => domains.some((d) => host === d || host.endsWith("." + d)));
   } catch { return false; }
 }
@@ -554,7 +557,7 @@ async function loadSettings() {
   try {
     const s = await api("/api/settings");
     $("#s-dir").value = s.download_dir; $("#s-langs").value = s.subtitle_langs.join(", ");
-    $("#s-site").checked = s.organize_by_site; $("#s-h264").checked = s.prefer_h264;
+    $("#s-site").checked = s.organize_by_site; $("#s-h264").checked = s.prefer_h264; $("#s-other").checked = s.allow_other_sites;
     renderSystem();
   } catch (err) { toast(err.message, "error"); }
 }
@@ -579,7 +582,7 @@ $("#s-save").addEventListener("click", async () => {
   try {
     await api("/api/settings", { method: "PUT", body: JSON.stringify({
       download_dir: $("#s-dir").value.trim(), subtitle_langs: $("#s-langs").value.split(",").map((x) => x.trim()).filter(Boolean),
-      organize_by_site: $("#s-site").checked, prefer_h264: $("#s-h264").checked }) });
+      organize_by_site: $("#s-site").checked, prefer_h264: $("#s-h264").checked, allow_other_sites: $("#s-other").checked }) });
     await initHealth(); toast("Ajustes guardados.", "ok");
   } catch (err) { toast(err.message, "error"); }
 });
@@ -598,7 +601,7 @@ $("#s-update").addEventListener("click", async (ev) => {
 // ---------- inicio ----------
 async function initHealth() {
   health = await api("/api/health");
-  downloadDir = health.download_dir; sites = health.sites;
+  downloadDir = health.download_dir; sites = health.sites; anySite = health.allow_other_sites !== false;
   renderSystem();
 }
 (async function init() {

@@ -19,5 +19,6 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m compileall -q app
       - run: python -m json.tool extension/manifest.json > /dev/null
-      - run: node --check app/static/app.js && node --check extension/popup.js
+      - run: node --check app/static/app.js && node --check extension/popup.js && node --check extension/background.js && node --check extension/content.js
+      - run: node --test tests/extension/background.test.js
       - run: pytest -q

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -32,13 +33,17 @@ def site_for_url(value: str) -> str | None:
     return None
 
 
-def validate_media_url(value: str) -> tuple[str, str]:
-    """Devuelve (url_limpia, sitio). Lanza ValueError si no es valida/soportada."""
+def validate_media_url(value: str, allow_any: bool = False) -> tuple[str, str]:
+    """Devuelve (url_limpia, sitio). Lanza ValueError si no es valida/soportada.
+    Con allow_any se acepta cualquier sitio publico (yt-dlp tiene extractores para cientos y un modo generico)."""
     value = (value or "").strip()
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("El enlace debe comenzar con http:// o https://")
     site = site_for_url(value)
+    if not site and allow_any:
+        assert_public_host(parsed.hostname)  # nunca la red local (SSRF)
+        site = re.sub(r"[^\w.-]", "_", re.sub(r"^www\.", "", parsed.hostname.lower()))
     if not site:
         names = ", ".join(SUPPORTED_SITES)
         raise ValueError(f"Sitio no soportado para descargar video. Soportados: {names}. "

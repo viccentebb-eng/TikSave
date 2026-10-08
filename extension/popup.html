@@ -9,6 +9,15 @@
   <main>
     <header><div class="mark">TS</div><div><h1>TikSave</h1><div id="site" class="site"></div></div></header>
     <p id="url">Leyendo pestaña…</p>
+    <section id="perm" class="notice hidden">
+      <b>Activa el botón flotante</b> sobre los videos y la detección de streams en todos los sitios.
+      <button id="grant" class="primary">Activar en todos los sitios</button>
+    </section>
+    <label id="float-row" class="fmts hidden"><input type="checkbox" id="float-on" checked> Mostrar botón flotante sobre los videos</label>
+    <section id="found" class="hidden">
+      <div class="fine"><b>Videos detectados en esta página</b></div>
+      <div id="found-list" class="buttons"></div>
+    </section>
     <section id="dl" class="buttons hidden">
       <button data-mode="video" class="primary">Descargar video MP4</button>
       <div class="two">

@@ -57,14 +57,21 @@ async function init() {
     const health = await call("/api/health");
     sites = health.sites;
     const site = siteFor(currentUrl);
+    const isWeb = /^https?:/i.test(currentUrl);
     if (site) { $("site").textContent = site; $("dl").classList.remove("hidden"); }
-    else $("site").textContent = "Página web";
+    else {
+      $("site").textContent = "Página web";
+      if (isWeb && health.allow_other_sites) $("dl").classList.remove("hidden");
+    }
+    await initFloating(isWeb);
     if (/^https?:/i.test(currentUrl)) $("cap").classList.remove("hidden");
     if (!site && !/^https?:/i.test(currentUrl)) say("Abre un video o una página web y vuelve a pulsar.", "error");
   } catch { say("TikSave no está abierto. Ejecuta run-windows.bat primero.", "error"); }
 }
 
-document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => send("/api/download", { url: currentUrl, mode: b.dataset.mode })));
+const pageTitle = () => $("url").textContent;
+document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => send("/api/download", {
+  url: currentUrl, mode: b.dataset.mode, title: siteFor(currentUrl) ? undefined : pageTitle(), referer: siteFor(currentUrl) ? undefined : currentUrl })));
 document.querySelector("[data-kit]").addEventListener("click", () => send("/api/download", { url: currentUrl, mode: "transcript", notes: true, cover: true }));
 // Se ejecuta DENTRO de la pagina (con tu sesion): copia el DOM y convierte las imagenes a datos incrustados.
 async function grabPage() {
@@ -110,4 +117,42 @@ $("capture").addEventListener("click", async () => {
   $("capture").disabled = false;
 });
 $("open").addEventListener("click", () => ext.tabs.create({ url: API }));
+async function initFloating(isWeb) {
+  if (!isWeb) return;
+  let granted = false;
+  try { granted = await ext.permissions.contains({ origins: ["<all_urls>"] }); } catch { /* ignorar */ }
+  $("perm").classList.toggle("hidden", granted);
+  $("float-row").classList.toggle("hidden", !granted);
+  const stored = await ext.storage.local.get({ floatEnabled: true });
+  $("float-on").checked = stored.floatEnabled !== false;
+  if (granted) await showFound();
+}
+$("grant").addEventListener("click", async () => {
+  try {
+    const ok = await ext.permissions.request({ origins: ["<all_urls>"] });
+    if (ok) { await ext.runtime.sendMessage({ type: "register" }); say("Listo: recarga la página para ver el botón sobre los videos.", "ok"); await initFloating(true); }
+    else say("Sin ese permiso no puedo mostrar el botón flotante.", "error");
+  } catch (err) { say(err.message || "No se pudo pedir el permiso.", "error"); }
+});
+$("float-on").addEventListener("change", () => ext.storage.local.set({ floatEnabled: $("float-on").checked }));
+
+async function showFound() {
+  if (siteFor(currentUrl) || currentTabId == null) return; // en sitios conocidos basta con la URL de la pagina
+  const res = await ext.runtime.sendMessage({ type: "media", tabId: currentTabId });
+  const list = (res?.media || []).slice().reverse();
+  $("found").classList.toggle("hidden", !list.length);
+  const box = $("found-list"); box.replaceChildren();
+  for (const item of list) {
+    const row = document.createElement("div"); row.className = "found-item";
+    const name = document.createElement("span");
+    let host = ""; try { host = new URL(item.url).pathname.split("/").pop() || new URL(item.url).hostname; } catch { /* ignorar */ }
+    name.textContent = `${item.kind === "manifest" ? "Stream" : "Video"} · ${host.slice(0, 28)}${item.size ? ` · ${(item.size / 1e6).toFixed(1)} MB` : ""}`;
+    name.title = item.url;
+    const mk = (text, mode) => { const b = document.createElement("button"); b.textContent = text;
+      b.addEventListener("click", () => send("/api/download", { url: item.url, mode, referer: currentUrl, title: pageTitle() })); return b; };
+    row.append(name, mk("MP4", "video"), mk("MP3", "mp3"));
+    box.append(row);
+  }
+}
+
 init();

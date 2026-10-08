@@ -17,6 +17,8 @@ class DownloadRequest(BaseModel):
     notes: bool = False
     start: float | None = Field(default=None, ge=0)
     end: float | None = Field(default=None, gt=0)
+    referer: str | None = Field(default=None, max_length=2000)  # pagina donde se vio el video (CDNs lo exigen)
+    title: str | None = Field(default=None, max_length=300)  # titulo de la pagina, para nombrar archivos sueltos
 
 
 class TrimRequest(BaseModel):
@@ -60,6 +62,7 @@ class SettingsUpdate(BaseModel):
     subtitle_langs: list[str] | None = None
     organize_by_site: bool | None = None
     prefer_h264: bool | None = None
+    allow_other_sites: bool | None = None
 
 
 class PathsRequest(BaseModel):

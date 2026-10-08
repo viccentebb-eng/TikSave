@@ -28,6 +28,7 @@ class Settings(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=lambda: ["es", "en"])
     organize_by_site: bool = True
     prefer_h264: bool = False
+    allow_other_sites: bool = True  # descargar de cualquier sitio publico que yt-dlp entienda
 
     @field_validator("subtitle_langs")
     @classmethod

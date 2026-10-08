@@ -44,6 +44,7 @@ def test_rejects_foreign_host_and_origin(env):
 
 def test_batch_download_validation(env, monkeypatch):
     c, api, _ = env
+    c.put("/api/settings", json={"allow_other_sites": False})
     monkeypatch.setattr(api.state.downloader.pool, "submit", lambda *a, **k: None)  # no descargar de verdad
     r = c.post("/api/download/batch", json={"urls": ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@a/video/1",
                                                       "https://evil.com/x", "  "], "mode": "mp3", "transcript": True})
@@ -100,6 +101,7 @@ def test_library_files_and_traversal(env):
 
 def test_inspect_errors_are_friendly(env, monkeypatch):
     c, api, _ = env
+    c.put("/api/settings", json={"allow_other_sites": False})
     assert c.post("/api/inspect", json={"url": "https://evil.com"}).status_code == 400
 
     def boom(url):

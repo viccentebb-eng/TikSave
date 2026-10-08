@@ -77,6 +77,7 @@ def create_app(home: Path | None = None) -> FastAPI:
         return {"ok": True, "name": "TikSave", "version": __version__,
                 "download_dir": str(settings.download_dir),
                 "sites": {name: list(domains) for name, domains in SUPPORTED_SITES.items()},
+                "allow_other_sites": settings.value.allow_other_sites,
                 "capabilities": {**downloader.capabilities(), "browser": browser_available(), "pandoc": has_pandoc()}}
 
     @api.get("/api/settings")
@@ -112,7 +113,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     def download(payload: DownloadRequest) -> dict:
         try:
             return downloader.enqueue(payload.url, payload.mode, payload.transcript, payload.cover, payload.notes,
-                                      payload.start, payload.end)
+                                      payload.start, payload.end, payload.referer, payload.title)
         except ValueError as exc:
             raise bad(exc) from exc
 

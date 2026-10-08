@@ -13,3 +13,9 @@ button.primary{background:#fe2c55;border-color:#fe2c55}button.ghost{background:t
 
 #cap{display:grid;gap:8px}.fmts{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px}.fmts label{display:flex;gap:5px;align-items:center;cursor:pointer}
 .fine{font-size:11.5px;color:#98a1b3;line-height:1.35}
+
+.notice{margin-top:12px;padding:10px 12px;border:1px solid #6b5a26;border-radius:10px;background:rgba(245,184,75,.1);font-size:12.5px;line-height:1.4;display:grid;gap:8px}
+#float-row{margin-top:12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:12.5px}
+.found-item{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center;font-size:12px}
+.found-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#98a1b3}
+.found-item button{padding:6px 10px;font-size:12px}

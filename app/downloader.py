@@ -18,7 +18,7 @@ from yt_dlp.utils import download_range_func
 
 from app.config import SettingsStore
 from app.jobs import JobCancelled, JobStore
-from app.security import validate_media_url
+from app.security import site_for_url, validate_media_url
 from app.textutils import build_notes, subtitles_to_text
 
 MODES = {"video", "mp3", "audio", "transcript", "cover"}
@@ -26,7 +26,7 @@ ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 SUB_EXTS = (".srt", ".vtt", ".ass", ".json3", ".ttml")
 # TikTok publica los idiomas con codigo ISO 639-2 (spa-ES); aceptamos ambos.
 LANG_ALIASES = {"es": "spa", "en": "eng", "pt": "por", "fr": "fra", "de": "deu", "it": "ita", "ca": "cat", "zh": "zho"}
-OUTPUT_TEMPLATE = "%(uploader,creator,channel|Desconocido)s - %(title).80s [%(id)s].%(ext)s"
+OUTPUT_TEMPLATE = "%(uploader,creator,channel&{} - |)s%(title).80s [%(id)s].%(ext)s"
 
 
 def clean_error(value: Exception | str) -> str:
@@ -139,7 +139,11 @@ class Downloader:
         }
 
     @staticmethod
-    def _base_options() -> dict[str, Any]:
+    def _base_options(referer: str | None = None) -> dict[str, Any]:
+        headers = {"Accept-Language": "es-MX,es;q=0.9,en;q=0.7"}
+        if referer and referer.startswith(("http://", "https://")):
+            origin = "/".join(referer.split("/", 3)[:3])
+            headers.update({"Referer": referer, "Origin": origin})
         return {
             "quiet": True,
             "noprogress": True,
@@ -148,12 +152,15 @@ class Downloader:
             "retries": 3,
             "fragment_retries": 3,
             "socket_timeout": 30,
-            "http_headers": {"Accept-Language": "es-MX,es;q=0.9,en;q=0.7"},
+            "http_headers": headers,
             "windowsfilenames": True,
         }
 
+    def _check_url(self, url: str) -> tuple[str, str]:
+        return validate_media_url(url, self.settings.value.allow_other_sites)
+
     def inspect(self, url: str) -> dict[str, Any]:
-        url, site = validate_media_url(url)
+        url, site = self._check_url(url)
         with yt_dlp.YoutubeDL({**self._base_options(), "skip_download": True}) as ydl:
             info = ydl.extract_info(url, download=False)
         subs = list((info.get("subtitles") or {}).keys())
@@ -178,7 +185,7 @@ class Downloader:
 
     def expand(self, url: str, limit: int = 20) -> list[dict[str, str]]:
         """Perfil / lista -> enlaces individuales (los ultimos `limit`)."""
-        url, _ = validate_media_url(url)
+        url, _ = self._check_url(url)
         opts = {**self._base_options(), "noplaylist": False, "extract_flat": "in_playlist",
                 "playlistend": max(1, min(limit, 100)), "skip_download": True}
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -192,7 +199,7 @@ class Downloader:
                 continue
             link = entry.get("webpage_url") or entry.get("url")
             try:
-                link, _ = validate_media_url(link or "")
+                link, _ = self._check_url(link or "")
             except ValueError:
                 continue
             out.append({"url": link, "title": entry.get("title") or entry.get("id") or link})
@@ -201,8 +208,8 @@ class Downloader:
     # --------------------------------------------------------------- enqueue
     def enqueue(self, url: str, mode: str = "video", transcript: bool = False,
                 cover: bool = False, notes: bool = False, start: float | None = None,
-                end: float | None = None) -> dict[str, Any]:
-        url, site = validate_media_url(url)
+                end: float | None = None, referer: str | None = None, title: str | None = None) -> dict[str, Any]:
+        url, site = self._check_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
         if start is not None or end is not None:
@@ -213,7 +220,8 @@ class Downloader:
                 start = end = None
         options = {"site": site, "transcript": transcript or mode == "transcript",
                    "cover": cover or mode in {"cover", "transcript"}, "notes": notes, "start": start,
-                   "end": float(end) if end is not None else None}
+                   "end": float(end) if end is not None else None,
+                   "referer": referer or None, "title": (title or "").strip()[:200] or None}
         job = self.jobs.create("download", url, mode, options)
         self.pool.submit(self._run, job.id)
         return self.jobs.get(job.id) or {}
@@ -224,7 +232,7 @@ class Downloader:
             return None
         o = old["options"]
         return self.enqueue(old["url"], old["mode"], o.get("transcript", False), o.get("cover", False),
-                            o.get("notes", False), o.get("start"), o.get("end"))
+                            o.get("notes", False), o.get("start"), o.get("end"), o.get("referer"), o.get("title"))
 
     # ------------------------------------------------------------------- run
     def _run(self, job_id: str) -> None:
@@ -275,7 +283,8 @@ class Downloader:
         out_dir = self._target_dir(options["site"])
 
         self.jobs.update(job_id, status="starting", stage="Analizando enlace", progress=0.0)
-        with yt_dlp.YoutubeDL({**self._base_options(), "skip_download": True}) as probe:
+        referer = options.get("referer")
+        with yt_dlp.YoutubeDL({**self._base_options(referer), "skip_download": True}) as probe:
             probe_info = probe.extract_info(url, download=False)
         self.jobs.update(job_id, title=(probe_info.get("title") or probe_info.get("description") or "")[:180] or None,
                          uploader=probe_info.get("uploader") or probe_info.get("creator"),
@@ -308,8 +317,11 @@ class Downloader:
         if clipped:
             label = f"{format_clip(start or 0)}-{format_clip(end)}" if end else f"desde {format_clip(start or 0)}"
             template = template.replace(".%(ext)s", f" (recorte {label}).%(ext)s")
+        if options.get("title") and site_for_url(url) is None:  # archivo suelto: usar el titulo de la pagina
+            literal = re.sub(r"\s+", " ", re.sub(r"[\\/:*?\"<>|\r\n]+", " ", options["title"])).strip()[:80].replace("%", "%%")
+            template = template.replace("%(title).80s", literal or "%(title).80s")
         opts: dict[str, Any] = {
-            **self._base_options(),
+            **self._base_options(referer),
             **self._format_options(mode, caps["ffmpeg"]),
             "outtmpl": str(out_dir / template),
             "progress_hooks": [progress_hook],

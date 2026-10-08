@@ -52,7 +52,7 @@
             <h2>Pega los enlaces</h2>
             <button id="paste" class="btn ghost small"><svg class="ic"><use href="#i-clipboard"/></svg>Pegar</button>
           </div>
-          <textarea id="urls" rows="3" spellcheck="false" placeholder="https://www.tiktok.com/@usuario/video/…&#10;Puedes pegar varios enlaces, uno por línea."></textarea>
+          <textarea id="urls" rows="3" spellcheck="false" placeholder="https://www.tiktok.com/@usuario/video/…&#10;Pega uno o varios enlaces (TikTok, YouTube, Instagram, X, Vimeo… o cualquier video público)."></textarea>
           <div id="url-hint" class="hint"></div>
 
           <div id="profile-box" class="notice hidden">
@@ -169,6 +169,7 @@
             <input id="s-langs" type="text" placeholder="es, en">
           </label>
           <label class="switch"><input type="checkbox" id="s-site"><span>Organizar en carpetas por plataforma (TikTok, YouTube…)</span></label>
+          <label class="switch"><input type="checkbox" id="s-other"><span>Permitir descargar de cualquier sitio público <small>(además de TikTok, YouTube, Instagram…; usa los extractores de yt-dlp y un modo genérico para videos sueltos y streams; no funciona con contenido con DRM ni con login)</small></span></label>
           <label class="switch"><input type="checkbox" id="s-h264"><span>Compatibilidad máxima: preferir H.264 <small>(abre en cualquier reproductor; algunos videos de TikTok bajan de 1080p a 576p)</small></span></label>
           <div class="row"><button id="s-save" class="btn primary">Guardar ajustes</button></div>
         </div>
