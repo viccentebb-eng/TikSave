@@ -70,9 +70,18 @@ async function init() {
 }
 
 const pageTitle = () => $("url").textContent;
+// En sitios sin extractor, la pagina no sirve: se usa el stream que cargo (si lo hay).
+async function resolveUrl(url) {
+  if (siteFor(url) || url !== currentUrl || currentTabId == null) return url;
+  try {
+    const res = await ext.runtime.sendMessage({ type: "page-target", tabId: currentTabId });
+    return res?.url || url;
+  } catch { return url; }
+}
 // Las descargas pasan por el fondo: el adjunta tu sesion (cookies) y resuelve el enlace correcto.
 async function sendDownload(body) {
   try {
+    body = { ...body, url: await resolveUrl(body.url) };
     const res = await ext.runtime.sendMessage({ type: "save", explicitUrl: body.url, mode: body.mode, title: body.title,
       referer: body.referer, pageUrl: currentUrl, tabId: currentTabId });
     if (!res || res.error) throw new Error(res?.error || "Sin respuesta");

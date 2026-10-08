@@ -63,6 +63,9 @@ def friendly_error(value: Exception | str) -> str:
         return "El contenido ya no esta disponible (borrado o restringido en tu region)."
     if "ffmpeg" in low or "ffprobe" in low:
         return "Falta FFmpeg (necesario para MP3 y subtitulos SRT). Instala FFmpeg y reinicia TikSave."
+    if "unsupported url" in low and "/photo/" not in low:
+        return ("TikSave no sabe extraer videos de esa página. Si la reproduces en el navegador, usa uno de los "
+                "videos detectados en el popup de la extensión (botones MP4/MP3).")
     if "unsupported url" in low or "no video formats" in low or "/photo/" in low:
         return "No se encontro un video en ese enlace (las publicaciones de solo fotos no estan soportadas)."
     if any(m in low for m in ("timed out", "timeout", "connection", "getaddrinfo", "name resolution")):

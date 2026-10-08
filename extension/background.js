@@ -183,6 +183,11 @@ async function handle(msg, sender) {
     case "save": return save(msg, sender);
     case "media": return { media: await getMedia(msg.tabId) };
     case "register": return { ok: await registerFloating() };
+    case "page-target": {
+      // Sitio sin extractor: el video real es el stream que cargo la pagina, no la pagina misma.
+      const best = bestMedia(await getMedia(msg.tabId));
+      return { url: best ? best.url : null };
+    }
     case "job-status": return call(`/api/jobs/${encodeURIComponent(msg.id)}`);
     case "rec-start": return call("/api/recordings", { title: msg.title || "", page_url: msg.pageUrl || sender.tab?.url || "" });
     case "rec-chunk": return call(`/api/recordings/${encodeURIComponent(msg.id)}/chunk`, { seq: msg.seq, data: msg.data });
@@ -201,4 +206,4 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-if (typeof module !== "undefined") module.exports = { classify, cleanUrl, bestMedia, resolveTarget, isKnownSite, handle };
+if (typeof module !== "undefined") module.exports = { classify, cleanUrl, bestMedia, resolveTarget, isKnownSite, handle, noteMedia };

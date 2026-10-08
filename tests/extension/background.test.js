@@ -105,3 +105,12 @@ test("mensajes del grabador llegan a la API", async () => {
 test("rechaza mensajes de otros remitentes", async () => {
   await assert.rejects(bg.handle({ type: "save" }, { id: "otra-extension" }), /Remitente/);
 });
+
+test("page-target devuelve el stream detectado en la pestana, o null si no hay ninguno", async () => {
+  globalThis.__store = {};
+  const none = await bg.handle({ type: "page-target", tabId: 501 }, { id: "x" });
+  assert.equal(none.url, null);
+  await bg.noteMedia({ tabId: 501, url: "https://cdn.otro.com/hd_720.m3u8?t=1", ...hdrs({}) });
+  const found = await bg.handle({ type: "page-target", tabId: 501 }, { id: "x" });
+  assert.equal(found.url, "https://cdn.otro.com/hd_720.m3u8?t=1");
+});
