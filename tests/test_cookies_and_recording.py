@@ -168,3 +168,15 @@ def test_recording_cancel_from_queue_and_empty(tmp_path, monkeypatch, webm_bytes
     empty = c.post("/api/recordings", json={"title": "vacio", "page_url": "https://a.com"}).json()
     assert c.post(f"/api/recordings/{empty['id']}/finish", json={}).status_code == 400
     assert c.get(f"/api/jobs/{empty['id']}").json()["status"] == "error"
+
+
+def test_cookies_default_to_auto_and_stay_silent_without_a_browser(tmp_path, monkeypatch, secret_site):
+    base, _ = secret_site
+    monkeypatch.setenv("HOME", str(tmp_path / "sin_navegadores"))
+    cookies_mod.clear_cache()
+    c = client(tmp_path, monkeypatch)
+    assert c.get("/api/settings").json()["cookies_browser"] == "auto"
+    st = wait(c, c.post("/api/download", json={"url": base + "/secret.mp4", "mode": "video"}).json()["id"])
+    assert st["status"] == "error"
+    assert "cookies" not in st["error"].lower()  # no se muestra un error de cookies: la opcion automatica es silenciosa
+    assert "sesion" in st["error"].lower()

@@ -17,7 +17,7 @@ from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import download_range_func
 
 from app.config import SettingsStore
-from app.cookies import write_cookie_file
+from app.cookies import auto_browser, write_cookie_file
 from app.jobs import JobCancelled, JobStore
 from app.security import site_for_url, validate_media_url
 from app.textutils import build_notes, subtitles_to_text
@@ -57,8 +57,8 @@ def friendly_error(value: Exception | str) -> str:
                 "cifrado de Windows puede impedirlo). Tambien puedes descargar desde la extension, que envia tu sesion.")
     if any(m in low for m in ("private", "log in", "login", "sign in", "cookies", "members-only", "authenticat",
                               "http error 403", "forbidden", "http error 401")):
-        return ("Este contenido exige iniciar sesion. En Ajustes elige tu navegador en 'Usar mis cookies' o descargalo "
-                "desde la extension de TikSave, que usa tu sesion.")
+        return ("Este contenido exige iniciar sesion. Descargalo desde la extension de TikSave (botón flotante o popup), "
+                "que usa tu sesion del navegador.")
     if any(m in low for m in ("removed", "unavailable", "not available", "404", "no longer", "deleted")):
         return "El contenido ya no esta disponible (borrado o restringido en tu region)."
     if "ffmpeg" in low or "ffprobe" in low:
@@ -178,6 +178,9 @@ class Downloader:
                                                                job_id)
             return {"cookiefile": str(self._cookie_files[job_id])}
         browser = self.settings.value.cookies_browser
+        if browser == "auto":
+            name = auto_browser()  # silencioso: sin sesion disponible se descarga sin cookies
+            return {"cookiesfrombrowser": (name,)} if name else {}
         return {"cookiesfrombrowser": (browser,)} if browser else {}
 
     def _forget_cookies(self, job_id: str) -> None:
@@ -249,7 +252,7 @@ class Downloader:
                    "cover": cover or mode in {"cover", "transcript"}, "notes": notes, "start": start,
                    "end": float(end) if end is not None else None,
                    "referer": referer or None, "title": (title or "").strip()[:200] or None,
-                   "with_cookies": bool(cookies) or bool(self.settings.value.cookies_browser)}
+                   "with_cookies": bool(cookies) or self.settings.value.cookies_browser not in ("", None)}
         job = self.jobs.create("download", url, mode, options)
         if cookies:
             self._cookies[job.id] = cookies

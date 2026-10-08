@@ -22,7 +22,7 @@ import httpx
 from bs4 import BeautifulSoup, UnicodeDammit
 
 from app.config import SettingsStore
-from app.cookies import browser_jar, cookies_for_url
+from app.cookies import cookies_for_url, jar_for_setting
 from app.convert import (CHAT_HOSTS, html_to_markdown, has_pandoc, localize_images, page_meta,  # noqa: F401
                          pandoc_convert)
 from app.jobs import JobCancelled, JobStore
@@ -420,7 +420,7 @@ class CaptureService:
 
         jar = None
         try:
-            jar = browser_jar(self.settings.value.cookies_browser)
+            jar = jar_for_setting(self.settings.value.cookies_browser) if self.settings.value.cookies_browser else None
         except (RuntimeError, ValueError) as exc:
             warnings.append(str(exc))
         page_cookies = cookies_for_url(jar, url) if jar is not None else []

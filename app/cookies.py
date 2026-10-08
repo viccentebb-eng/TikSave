@@ -14,6 +14,9 @@ from urllib.parse import urlparse
 from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
 
 BROWSERS = ("firefox", "chrome", "edge", "brave", "chromium", "opera", "vivaldi", "safari")
+# Orden en que se prueban cuando la opcion es "auto": el primero con sesion legible gana.
+AUTO_ORDER = ("chrome", "edge", "firefox", "brave", "opera", "vivaldi")
+_auto: dict[str, object] = {"at": 0.0, "name": None}
 MAX_COOKIES = 600
 _cache: dict[str, tuple[float, YoutubeDLCookieJar]] = {}
 
@@ -62,8 +65,33 @@ def browser_jar(browser: str, ttl: float = 60.0) -> YoutubeDLCookieJar | None:
     return jar
 
 
+def auto_browser(ttl: float = 300.0) -> str | None:
+    """Primer navegador de AUTO_ORDER cuyas cookies se pueden leer; None si ninguno. Nunca lanza error."""
+    if time.time() - float(_auto["at"]) < ttl:
+        return _auto["name"]  # type: ignore[return-value]
+    found = None
+    for name in AUTO_ORDER:
+        try:
+            if browser_jar(name, ttl=ttl) is not None:
+                found = name
+                break
+        except Exception:  # noqa: BLE001 - no instalado, bloqueado o sin perfil: se prueba el siguiente
+            continue
+    _auto.update(at=time.time(), name=found)
+    return found
+
+
+def jar_for_setting(setting: str) -> YoutubeDLCookieJar | None:
+    """Cookies segun el ajuste. 'auto' nunca falla: si no hay sesion disponible devuelve None."""
+    if setting == "auto":
+        name = auto_browser()
+        return browser_jar(name) if name else None
+    return browser_jar(setting)
+
+
 def clear_cache() -> None:
     _cache.clear()
+    _auto.update(at=0.0, name=None)
 
 
 def cookies_for_url(jar: http.cookiejar.CookieJar | None, url: str) -> list[dict]:
