@@ -1,6 +1,7 @@
 // Funciona en Firefox (browser.*) y Chrome/Edge (chrome.*).
 const ext = globalThis.browser ?? globalThis.chrome;
 const API = "http://127.0.0.1:8173";
+const CHAT_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai"];
 const $ = (id) => document.getElementById(id);
 let currentUrl = "";
 let currentTabId = null;
@@ -58,6 +59,8 @@ async function init() {
     sites = health.sites;
     const site = siteFor(currentUrl);
     const isWeb = /^https?:/i.test(currentUrl);
+    const isChat = CHAT_HOSTS.some((d) => { try { return new URL(currentUrl).hostname.endsWith(d); } catch { return false; } });
+    if (isChat) { $("dl").classList.add("hidden"); say("Conversación detectada: usa Capturar esta página para guardarla con tu sesión.", "ok"); }
     if (site) { $("site").textContent = site; $("dl").classList.remove("hidden"); }
     else {
       $("site").textContent = "Página web";

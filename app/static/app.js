@@ -162,6 +162,7 @@ function extractUrls(text) {
   const found = text.match(/https?:\/\/[^\s<>"']+/g) || [];
   return [...new Set(found.map((u) => u.replace(/[),.;]+$/, "")))];
 }
+const CHAT_SITES = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai"];
 function currentMode() { return $('input[name="mode"]:checked').value; }
 function isProfile(url) {
   return /^https?:\/\/(www\.)?tiktok\.com\/@[\w.\-]+\/?(\?.*)?$/i.test(url)
@@ -181,6 +182,11 @@ function updateDownloadUi() {
     hint.append(h("span", { class: "bad" }, "No encuentro ningún enlace (debe empezar con https://)."));
   }
   const mode = currentMode();
+  const chatLink = valid.find((u) => CHAT_SITES.some((d) => new URL(u).hostname.toLowerCase().endsWith(d)));
+  if (chatLink) {
+    hint.append(h("div", { class: "bad" }, "Esto es una conversación de ChatGPT/Gemini/Claude: yt-dlp no puede leerla. "),
+      h("button", { class: "btn small", onclick: () => { $("#cap-url").value = chatLink; showTab("capture"); toast("Para guardar la conversación con tu sesión, usa la extensión → Capturar esta página.", "ok"); } }, "Ir a Capturar web"));
+  }
   const textOnly = mode === "transcript", coverOnly = mode === "cover";
   $("#x-transcript").disabled = textOnly; if (textOnly) $("#x-transcript").checked = true;
   $("#x-cover").disabled = coverOnly; if (coverOnly) $("#x-cover").checked = true;
