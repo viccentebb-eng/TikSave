@@ -166,3 +166,14 @@ def test_friendly_error_does_not_blame_region_for_format_errors():
     msg = friendly_error("ERROR: [youtube] abc: Requested format is not available")
     assert "region" not in msg and "yt-dlp" in msg
     assert "region" in friendly_error("This video is not available in your country")
+
+
+def test_duplicate_download_reuses_active_job(env, monkeypatch):
+    c, api, _ = env
+    monkeypatch.setattr(api.state.downloader.pool, "submit", lambda *a, **k: None)
+    url = "https://cdn.otro.com/clase_720.mp4"
+    body = {"url": url, "mode": "video", "referer": "https://otro.com/clase"}
+    first = c.post("/api/download", json=body).json()
+    again = c.post("/api/download", json=body).json()
+    assert again["id"] == first["id"]
+    assert c.get("/api/jobs").json()["jobs"].__len__() == 1

@@ -63,4 +63,4 @@ def test_direct_video_download_with_referer_and_page_title(tmp_path, monkeypatch
     assert out.exists() and out.suffix == ".mp4"
     assert "Mi video genial prueba" in out.name          # titulo de la pagina, saneado
     assert SEEN["referer"] == "https://sitio-original.com/pagina"
-    assert out.parent.name.startswith("127.0.0.1")        # carpeta por sitio
+    assert out.parent.name == "sitio-original.com"        # carpeta por la pagina, no por el CDN

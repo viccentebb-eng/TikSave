@@ -19,9 +19,11 @@ from yt_dlp.utils import download_range_func
 from app.config import SettingsStore
 from app.cookies import auto_browser, write_cookie_file
 from app.jobs import JobCancelled, JobStore
-from app.security import site_for_url, validate_media_url
+from app.security import SUPPORTED_SITES, site_for_url, validate_media_url
+from urllib.parse import urlparse
 from app.textutils import build_notes, subtitles_to_text
 
+SUPPORTED_SITE_NAMES = set(SUPPORTED_SITES)
 MODES = {"video", "mp3", "audio", "transcript", "cover"}
 ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 SUB_EXTS = (".srt", ".vtt", ".ass", ".json3", ".ttml")
@@ -170,6 +172,8 @@ class Downloader:
             "fragment_retries": 3,
             # YouTube necesita un interprete de JavaScript para descifrar sus formatos (Deno o Node). Se usa el que haya.
             "js_runtimes": {"deno": {}, "node": {}},
+            # En Windows el antivirus o el indexador suelen bloquear el .part al renombrarlo (WinError 32): se escribe directo.
+            "nopart": os.name == "nt",
             "socket_timeout": 30,
             "http_headers": headers,
             "windowsfilenames": True,
@@ -250,6 +254,15 @@ class Downloader:
         url, site = self._check_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
+        # Si ya se esta bajando lo mismo, no se crea otro trabajo: dos descargas al mismo archivo se pisan.
+        for active in self.jobs.list(limit=200):
+            if active["kind"] == "download" and active["url"] == url and active["mode"] == mode \
+                    and active["status"] in ("queued", "starting", "downloading", "processing"):
+                return active
+        if site not in SUPPORTED_SITE_NAMES and referer:
+            # Video suelto de un CDN: la carpeta debe llevar el nombre de la pagina, no el del servidor de video.
+            host = (urlparse(referer).hostname or "").lower().removeprefix("www.")
+            site = re.sub(r"[^\w.-]", "_", host) or site
         if start is not None or end is not None:
             start = max(0.0, float(start or 0))
             if end is not None and float(end) <= start:
