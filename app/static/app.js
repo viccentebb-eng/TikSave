@@ -131,6 +131,19 @@ function makeRange(container, { duration = 0, onChange = () => {}, onScrub = () 
   };
 }
 
+// ---------- tema (claro / oscuro / automatico) ----------
+const THEMES = ["auto", "dark", "light"], THEME_NAME = { auto: "auto", dark: "oscuro", light: "claro" };
+function applyTheme(t) {
+  const root = document.documentElement;
+  if (t === "auto") root.removeAttribute("data-theme"); else root.dataset.theme = t;
+  $("#theme").textContent = `Tema: ${THEME_NAME[t]}`;
+}
+$("#theme").addEventListener("click", () => {
+  const next = THEMES[(THEMES.indexOf(store.get("theme", "auto")) + 1) % THEMES.length];
+  store.set("theme", next); applyTheme(next);
+});
+applyTheme(store.get("theme", "auto"));
+
 // ---------- pestañas ----------
 function showTab(name) {
   $$(".tab").forEach((t) => { const on = t.dataset.tab === name; t.classList.toggle("active", on); t.setAttribute("aria-selected", on); });
@@ -230,8 +243,23 @@ async function loadPreview(url) {
     updateDownloadUi();
   } catch (err) {
     if (lastPreviewed !== url) return;
-    $("#preview").classList.add("hidden");
-    $("#url-hint").append(h("div", { class: "bad" }, err.message));
+    // No es un video que yt-dlp entienda: se muestra la pagina (titulo e imagen) para saber que es.
+    try {
+      const p = await post("/api/page-preview", { url });
+      if (lastPreviewed !== url) return;
+      previewDuration = 0;
+      $("#thumb").src = p.image || ""; $("#thumb").style.visibility = p.image ? "visible" : "hidden";
+      $("#thumb").referrerPolicy = "no-referrer";
+      $("#p-title").textContent = p.title;
+      $("#p-meta").textContent = [p.site, p.description].filter(Boolean).join(" · ");
+      const badges = $("#p-badges"); badges.replaceChildren(h("span", { class: "badge warn" }, "Página, no video"));
+      $("#preview").classList.remove("hidden");
+      $("#url-hint").append(h("div", { class: "muted" }, "Esto no es un video descargable. Para guardar la página usa «Capturar web» o la extensión."));
+    } catch {
+      if (lastPreviewed !== url) return;
+      $("#preview").classList.add("hidden");
+      $("#url-hint").append(h("div", { class: "bad" }, err.message));
+    }
   }
 }
 
@@ -495,6 +523,11 @@ function renderLibrary() {
   for (const item of items) {
     const thumb = h("div", { class: "lib-thumb" }, h("span", { class: "lib-kind" }, KIND_LABEL[item.type] || item.type));
     if (item.cover) thumb.prepend(h("img", { src: `/files/${encPath(norm(item.cover))}`, alt: "", loading: "lazy" }));
+    else if (item.type === "video" || item.type === "audio") {
+      const src = `/api/thumb?path=${encodeURIComponent(norm(item.files.find((f) => f.kind === item.type)?.path || item.files[0].path))}`;
+      thumb.prepend(h("img", { class: "thumb-media", src, alt: "", loading: "lazy", onerror: (e) => e.target.remove() }));
+      thumb.prepend(icon(item.type === "audio" ? "play" : "play"));
+    }
     else if (item.snippet) { thumb.classList.add("has-snippet"); thumb.prepend(h("div", { class: "lib-snippet" }, item.snippet)); }
     else thumb.prepend(icon(item.type === "site" ? "globe" : "file"));
     const check = h("span", { class: "check", "aria-hidden": "true" }, icon("check"));

@@ -23,6 +23,8 @@ from app.library import delete_files, list_library, open_in_os, resolve_inside
 from app.media_convert import MediaConverter
 from app.recorder import Recorder
 from app.trim import Trimmer
+from app.page_preview import preview as page_preview
+from app.thumbs import ensure_thumb
 from app.uploads import save_upload
 from app.models import (BatchRequest, TrimRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
                         ConvertRequest, PathRequest, PathsRequest, RecordingChunk, RecordingFinish, RecordingStart, SettingsUpdate)
@@ -225,6 +227,25 @@ def create_app(home: Path | None = None) -> FastAPI:
             return {"deleted": delete_files(settings.download_dir, payload.paths)}
         except ValueError as exc:
             raise bad(exc, 403) from exc
+
+    @api.get("/api/thumb")
+    def thumb(path: str) -> FileResponse:
+        try:
+            made = ensure_thumb(settings.download_dir, path)
+        except ValueError as exc:
+            raise bad(exc, 400) from exc
+        if not made:
+            raise HTTPException(status_code=404, detail="Sin miniatura")
+        return FileResponse(made, headers={"Cache-Control": "max-age=86400"})
+
+    @api.post("/api/page-preview")
+    def page_preview_api(payload: InspectRequest) -> dict:
+        try:
+            return page_preview(payload.url)
+        except ValueError as exc:
+            raise bad(exc) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"No se pudo ver la página: {str(exc)[:160]}") from exc
 
     @api.post("/api/upload", status_code=201)
     def upload(file: UploadFile = File(...)) -> dict:
