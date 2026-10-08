@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import unquote, urldefrag, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, UnicodeDammit
@@ -34,6 +34,40 @@ MAX_PAGE_BYTES = 15 * 1024 * 1024
 MAX_ASSET_BYTES = 4 * 1024 * 1024
 MAX_TOTAL_ASSET_BYTES = 30 * 1024 * 1024
 SKIP_LINK_EXT = re.compile(r"\.(pdf|zip|rar|7z|exe|dmg|mp4|mp3|avi|mov|jpe?g|png|gif|webp|svg|ico|css|js|xml)(\?|$)", re.I)
+
+
+DOC_EXT = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "zip", "txt", "odt", "ods", "odp", "rtf"}
+MEDIA_EXT = {"mp4", "webm", "mkv", "mov", "mp3", "m4a", "ogg", "wav", "aac"}
+MAX_DOC_BYTES = 200 * 1024 * 1024
+MAX_MEDIA_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def download_to_file(client: httpx.Client, url: str, target: Path, max_bytes: int) -> int:
+    """Descarga en streaming a disco (sin cargar todo en memoria), con los mismos controles SSRF y de tamano."""
+    current = url
+    for _ in range(6):
+        parsed = urlparse(current)
+        if parsed.scheme not in {"http", "https"}:
+            raise CaptureError("Solo se permiten enlaces http/https.")
+        assert_public_host(parsed.hostname or "")
+        with client.stream("GET", current) as resp:
+            if resp.status_code in {301, 302, 303, 307, 308} and resp.headers.get("location"):
+                current = urljoin(current, resp.headers["location"])
+                continue
+            if resp.status_code >= 400:
+                raise CaptureError(f"HTTP {resp.status_code}")
+            declared = resp.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                raise CaptureError("Archivo demasiado grande.")
+            size = 0
+            with target.open("wb") as fh:
+                for chunk in resp.iter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise CaptureError("Archivo demasiado grande.")
+                    fh.write(chunk)
+            return size
+    raise CaptureError("Demasiadas redirecciones.")
 
 
 class CaptureError(Exception):
@@ -58,8 +92,10 @@ class CaptureOptions:
     from_extension: bool = False
     full_content: bool = False  # False = solo el articulo principal
     render: str = "auto"  # auto | always | never (JavaScript con navegador)
-    depth: int = 0  # 0 = solo la pagina; 1-2 = seguir enlaces del mismo sitio
+    depth: int = 0  # 0 = solo la pagina; 1-2 = seguir enlaces del mismo sitio (respaldo: hasta 8)
     max_pages: int = 10
+    files: bool = False  # descargar documentos del mismo sitio (PDF, Word, Excel...) con su estructura de carpetas
+    media: bool = False  # ademas video y audio del mismo sitio (solo si el sitio es tuyo o el contenido es publico)
 
 
 # ----------------------------------------------------------------- red segura
@@ -355,8 +391,8 @@ class CaptureService:
             url = validate_web_url(url)
         if not (options.markdown or options.html or options.screenshot or options.pdf or options.docx or options.epub):
             raise ValueError("Elige al menos un formato de captura.")
-        options.depth = 0 if source_html is not None else max(0, min(options.depth, 2))
-        options.max_pages = max(1, min(options.max_pages, 50))
+        options.depth = 0 if source_html is not None else max(0, min(options.depth, 8))
+        options.max_pages = max(1, min(options.max_pages, 1000))
         if options.render not in {"auto", "always", "never"}:
             options.render = "auto"
         job = self.jobs.create("capture", url, "capture", options.__dict__.copy())
@@ -576,7 +612,7 @@ class CaptureService:
                 shutil.rmtree(out_dir / "images", ignore_errors=True)
 
             pages = 1
-            if opts.depth > 0 and opts.markdown:
+            if opts.depth > 0 and (opts.markdown or opts.files or opts.media):
                 pages += self._crawl(client, final_url, html, opts, out_dir, step, check, warnings)
                 if (out_dir / "indice.md").exists():
                     files.append(out_dir / "indice.md")
@@ -615,7 +651,45 @@ class CaptureService:
                     out.append(href)
             return list(dict.fromkeys(out))
 
+        def file_links(html: str, base: str) -> list[str]:
+            exts = DOC_EXT | (MEDIA_EXT if opts.media else set())
+            out = []
+            for a in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+                href = urldefrag(urljoin(base, a["href"]))[0]
+                p = urlparse(href)
+                if p.scheme in {"http", "https"} and p.hostname == host and p.path.lower().rsplit(".", 1)[-1] in exts:
+                    out.append(href)
+            return list(dict.fromkeys(out))
+
+        files_dir = out_dir / "archivos"
+        downloaded: set[str] = set()
+
+        def save_files(html: str, base: str) -> int:
+            if not opts.files and not opts.media:
+                return 0
+            count = 0
+            for file_url in file_links(html, base):
+                if file_url in downloaded or count >= 200:
+                    continue
+                downloaded.add(file_url)
+                if robots and not robots.can_fetch(USER_AGENT, file_url):
+                    continue
+                check()
+                parts = [re.sub(r"[^\w.\-]+", "_", unquote(part)).strip("._") or "x" for part in urlparse(file_url).path.strip("/").split("/")]
+                rel = Path(*parts)
+                target = files_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    download_to_file(client, file_url, target, MAX_MEDIA_BYTES if target.suffix.lower().lstrip(".") in MEDIA_EXT else MAX_DOC_BYTES)
+                    count += 1
+                except (CaptureError, httpx.HTTPError, ValueError, OSError):
+                    target.unlink(missing_ok=True)
+            if count:
+                step(f"Archivos guardados: {count}", 90)
+            return count
+
         seen = {urldefrag(start_url)[0]}
+        save_files(start_html, start_url)
         frontier, saved, index = [(u, 1) for u in links(start_html, start_url)], 0, []
         pages_dir = out_dir / "paginas"
         queue_i = 0
@@ -642,9 +716,10 @@ class CaptureService:
             name = f"{saved:02d}-{slugify(meta['title'], 'pagina')}.md"
             (pages_dir / name).write_text(front_matter(meta, final) + "\n\n" + body + "\n", encoding="utf-8")
             index.append(f"- [{meta['title']}](paginas/{name}) - {final}")
+            save_files(html, final)
             if depth < opts.depth:
                 frontier.extend((u, depth + 1) for u in links(html, final))
-            time.sleep(0.3)
+            time.sleep(0.25)
         if index:
             (out_dir / "indice.md").write_text("# Paginas capturadas\n\n" + "\n".join(index) + "\n", encoding="utf-8")
         elif opts.depth:

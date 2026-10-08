@@ -134,13 +134,15 @@
                 <select id="c-render"><option value="auto">Automático</option><option value="always">Siempre (más lento)</option><option value="never">Nunca</option></select>
               </label>
               <label>Seguir enlaces del mismo sitio
-                <select id="c-depth"><option value="0">No, solo esta página</option><option value="1">1 nivel</option><option value="2">2 niveles</option></select>
+                <select id="c-depth"><option value="0">No, solo esta página</option><option value="1">1 nivel</option><option value="2">2 niveles</option><option value="4">Todo el sitio (4 niveles)</option><option value="8">Respaldo completo (8 niveles)</option></select>
               </label>
               <label>Máximo de páginas
-                <input id="c-max" type="number" min="1" max="50" value="10">
+                <input id="c-max" type="number" min="1" max="1000" value="10">
               </label>
             </div>
-            <p class="fine">Seguir enlaces guarda cada subpágina como Markdown y respeta el robots.txt del sitio.</p>
+            <label class="switch"><input type="checkbox" id="c-files"><span>Descargar documentos del sitio <small>(PDF, Word, Excel, PowerPoint, ZIP) con su misma carpeta</small></span></label>
+            <label class="switch"><input type="checkbox" id="c-media"><span>Incluir video y audio del sitio <small>(solo si el sitio es tuyo o el contenido es público; pesa mucho)</small></span></label>
+            <p class="fine">Seguir enlaces guarda cada subpágina como Markdown y respeta el robots.txt del sitio. Para un respaldo de tu sitio, de tu escuela o de una página de gobierno: elige "Respaldo completo", sube el máximo de páginas y marca documentos.</p>
           </details>
         </div>
         <p class="fine pad">Se guarda en <b>Descargas/TikSave/Sitios</b>. Por seguridad no se pueden capturar direcciones locales o privadas.</p>

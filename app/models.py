@@ -64,8 +64,10 @@ class CaptureRequest(BaseModel):
     html_source: str | None = Field(default=None, max_length=40_000_000)  # DOM enviado por la extension
     full_content: bool = False
     render: Literal["auto", "always", "never"] = "auto"
-    depth: int = Field(default=0, ge=0, le=2)
-    max_pages: int = Field(default=10, ge=1, le=50)
+    depth: int = Field(default=0, ge=0, le=8)
+    max_pages: int = Field(default=10, ge=1, le=1000)
+    files: bool = False
+    media: bool = False
 
 
 class SettingsUpdate(BaseModel):

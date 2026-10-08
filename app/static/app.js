@@ -338,7 +338,8 @@ async function capture() {
       screenshot: $("#c-shot").checked, pdf: $("#c-pdf").checked,
       docx: $("#c-docx").checked, epub: $("#c-epub").checked, images: $("#c-images").checked,
       full_content: $("#c-full").value === "1", render: $("#c-render").value,
-      depth: Number($("#c-depth").value), max_pages: Math.min(50, Math.max(1, Number($("#c-max").value) || 10)),
+      depth: Number($("#c-depth").value), max_pages: Math.min(1000, Math.max(1, Number($("#c-max").value) || 10)),
+      files: $("#c-files").checked, media: $("#c-media").checked,
     });
     toast("Captura en cola.", "ok");
     $("#cap-url").value = "";
