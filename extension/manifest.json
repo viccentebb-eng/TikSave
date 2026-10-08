@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "TikSave Local",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Envía el video o la página actual a TikSave Local: descarga MP4/MP3, texto para IA o captura web.",
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab", "scripting"],
   "host_permissions": ["http://127.0.0.1:8173/*"],
   "action": {"default_title": "TikSave", "default_popup": "popup.html"},
   "browser_specific_settings": {"gecko": {"id": "tiksave-local@local", "strict_min_version": "128.0"}}

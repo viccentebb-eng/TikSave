@@ -123,3 +123,37 @@ def test_library_text_only_and_capture_naming(env):
     items = {i["type"]: i for i in c.get("/api/library").json()["items"]}
     assert items["text"]["name"] == "x - hola [2]" and items["text"]["cover"].endswith(".jpg")
     assert items["site"]["name"] == "Mi-Articulo" and len(items["site"]["files"]) == 3
+
+
+def test_trim_job_and_validation(env):
+    import shutil, subprocess
+    c, _, dl = env
+    if not shutil.which("ffmpeg"):
+        pytest.skip("sin ffmpeg")
+    d = dl / "TikTok"
+    d.mkdir(parents=True)
+    src = d / "clip [1].mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=d=6:s=160x120:r=10",
+                    "-f", "lavfi", "-i", "sine=d=6", "-shortest", "-c:v", "libx264", "-c:a", "aac", str(src)], check=True)
+    assert c.post("/api/trim", json={"path": "TikTok/clip [1].mp4", "start": 3, "end": 2}).status_code == 400
+    assert c.post("/api/trim", json={"path": "../x.mp4", "start": 0, "end": 2}).status_code == 400
+    job = c.post("/api/trim", json={"path": "TikTok/clip [1].mp4", "start": 1, "end": 3.5}).json()
+    for _ in range(100):
+        st = c.get(f"/api/jobs/{job['id']}").json()
+        if st["status"] in ("done", "error"):
+            break
+        time.sleep(0.2)
+    assert st["status"] == "done", st
+    out = Path(st["files"][0])
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
+                               capture_output=True, text=True).stdout)
+    assert 2.3 < dur < 2.8 and "recorte" in out.name and src.exists()
+
+
+def test_library_snippet_for_text_items(env):
+    c, _, dl = env
+    t = dl / "TikTok"
+    t.mkdir(parents=True)
+    (t / "a - hola [3].md").write_text('---\ntitle: "x"\n---\n\n# hola\n\nEste es el **contenido** real del video.\n')
+    item = c.get("/api/library").json()["items"][0]
+    assert item["snippet"].startswith("hola Este es el **contenido** real")

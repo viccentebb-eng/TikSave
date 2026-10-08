@@ -71,6 +71,7 @@ def list_library(base: Path, limit: int = 400) -> list[dict]:
             "platform": primary.relative_to(base).parts[0] if len(primary.relative_to(base).parts) > 1 else None,
             "modified": max(s.st_mtime for s in stats),
             "size": sum(s.st_size for s in stats),
+            "snippet": next((_snippet(m) for m in members if m.suffix.lower() in {".md", ".txt"}), None),
             "cover": str(cover.relative_to(base)) if cover else (
                 str(primary.relative_to(base)) if EXT_KIND[primary.suffix.lower()] == "image" else None),
             "files": [{"path": str(m.relative_to(base)), "name": m.name, "kind": EXT_KIND[m.suffix.lower()],
@@ -78,6 +79,21 @@ def list_library(base: Path, limit: int = 400) -> list[dict]:
         })
     items.sort(key=lambda i: i["modified"], reverse=True)
     return items[:limit]
+
+
+def _snippet(path: Path, limit: int = 220) -> str | None:
+    """Primeras lineas utiles de un .md/.txt (sin front matter ni titulos) para la tarjeta."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")[:6000]
+    except OSError:
+        return None
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        text = text[end + 4:] if end != -1 else text
+    lines = [ln.strip(" #>*-") for ln in text.splitlines() if ln.strip() and not ln.strip().startswith(("![", "```"))]
+    out = " ".join(lines)
+    out = re.sub(r"\s+", " ", out).strip()
+    return (out[:limit].rstrip() + "...") if len(out) > limit else (out or None)
 
 
 def delete_files(base: Path, rels: list[str]) -> int:

@@ -15,11 +15,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.capture import CaptureOptions, CaptureService, browser_available
+from app.convert import has_pandoc
 from app.config import SettingsStore, app_home
 from app.downloader import Downloader, friendly_error
 from app.jobs import JobStore
 from app.library import delete_files, list_library, open_in_os, resolve_inside
-from app.models import (BatchRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
+from app.trim import Trimmer
+from app.models import (BatchRequest, TrimRequest, CaptureRequest, DownloadRequest, ExpandRequest, InspectRequest,
                         PathRequest, PathsRequest, SettingsUpdate)
 from app.security import SUPPORTED_SITES, validate_media_url
 
@@ -37,6 +39,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     jobs = JobStore(home / "history.json")
     downloader = Downloader(settings, jobs)
     capturer = CaptureService(settings, jobs, downloader.pool)
+    trimmer = Trimmer(settings, jobs, downloader.pool)
 
     api = FastAPI(title="TikSave", version=__version__)
     api.state.settings, api.state.jobs, api.state.downloader = settings, jobs, downloader
@@ -74,7 +77,7 @@ def create_app(home: Path | None = None) -> FastAPI:
         return {"ok": True, "name": "TikSave", "version": __version__,
                 "download_dir": str(settings.download_dir),
                 "sites": {name: list(domains) for name, domains in SUPPORTED_SITES.items()},
-                "capabilities": {**downloader.capabilities(), "browser": browser_available()}}
+                "capabilities": {**downloader.capabilities(), "browser": browser_available(), "pandoc": has_pandoc()}}
 
     @api.get("/api/settings")
     def get_settings() -> dict:
@@ -108,7 +111,8 @@ def create_app(home: Path | None = None) -> FastAPI:
     @api.post("/api/download", status_code=202)
     def download(payload: DownloadRequest) -> dict:
         try:
-            return downloader.enqueue(payload.url, payload.mode, payload.transcript, payload.cover, payload.notes)
+            return downloader.enqueue(payload.url, payload.mode, payload.transcript, payload.cover, payload.notes,
+                                      payload.start, payload.end)
         except ValueError as exc:
             raise bad(exc) from exc
 
@@ -127,7 +131,15 @@ def create_app(home: Path | None = None) -> FastAPI:
     @api.post("/api/capture", status_code=202)
     def capture(payload: CaptureRequest) -> dict:
         try:
-            return capturer.enqueue(payload.url, CaptureOptions(**payload.model_dump(exclude={"url"})))
+            fields = payload.model_dump(exclude={"url", "html_source"})
+            return capturer.enqueue(payload.url, CaptureOptions(**fields), payload.html_source)
+        except ValueError as exc:
+            raise bad(exc) from exc
+
+    @api.post("/api/trim", status_code=202)
+    def trim(payload: TrimRequest) -> dict:
+        try:
+            return trimmer.enqueue(payload.path, payload.start, payload.end, payload.precise)
         except ValueError as exc:
             raise bad(exc) from exc
 
@@ -150,7 +162,10 @@ def create_app(home: Path | None = None) -> FastAPI:
 
     @api.post("/api/jobs/{job_id}/retry", status_code=202)
     def retry_job(job_id: str) -> dict:
-        new = downloader.retry(job_id) or capturer.retry(job_id)
+        try:
+            new = downloader.retry(job_id) or capturer.retry(job_id) or trimmer.retry(job_id)
+        except ValueError as exc:
+            raise bad(exc) from exc
         if not new:
             raise HTTPException(status_code=404, detail="Trabajo no encontrado")
         return new

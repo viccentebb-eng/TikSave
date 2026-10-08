@@ -24,6 +24,7 @@
       <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 5V4h6v1M9 11h6M9 15h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" fill="currentColor"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 7.5 20 18M8.5 16.5 20 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z M14 3v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
     </defs>
   </svg>
@@ -60,6 +61,11 @@
               <label class="inline">Últimos <input id="profile-limit" type="number" min="1" max="100" value="20"> videos</label>
               <button id="profile-load" class="btn small">Cargar videos</button>
             </div>
+          </div>
+
+          <div id="trim-box" class="trim hidden">
+            <label class="switch"><input type="checkbox" id="trim-on"><span><b>Recortar</b> — bajar solo el tramo que necesito</span></label>
+            <div id="trim-ui" class="hidden"></div>
           </div>
 
           <div id="preview" class="preview hidden">
@@ -105,11 +111,15 @@
             <button id="cap-go" class="btn primary"><svg class="ic"><use href="#i-globe"/></svg>Capturar</button>
           </div>
           <div class="formats four">
-            <label class="fmt"><input type="checkbox" id="c-md" checked><span><b>Texto Markdown</b><small>Limpio, para IA y notas</small></span></label>
-            <label class="fmt"><input type="checkbox" id="c-html"><span><b>Página offline</b><small>Un solo .html con imágenes</small></span></label>
-            <label class="fmt"><input type="checkbox" id="c-shot"><span><b>Captura de pantalla</b><small>Página completa .png</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-md" checked><span><b>Markdown</b><small>Texto, código, tablas y fórmulas</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-docx"><span><b>Word (.docx)</b><small>Con ecuaciones editables</small></span></label>
             <label class="fmt"><input type="checkbox" id="c-pdf"><span><b>PDF</b><small>Versión imprimible</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-html"><span><b>Página offline</b><small>Un solo .html</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-epub"><span><b>EPUB</b><small>Para e-readers</small></span></label>
+            <label class="fmt"><input type="checkbox" id="c-shot"><span><b>Captura de pantalla</b><small>Página completa .png</small></span></label>
           </div>
+          <label class="switch"><input type="checkbox" id="c-images" checked><span>Guardar las imágenes en una carpeta <small>(images/)</small></span></label>
+          <div class="notice tip"><b>¿ChatGPT, Gemini o páginas con tu cuenta?</b> El servidor no puede entrar con tu sesión. Abre la conversación en tu navegador y usa la <b>extensión de TikSave → Capturar esta página</b>: guarda lo que ya ves, con fórmulas, código e imágenes.</div>
           <div id="cap-nobrowser" class="notice hidden">No encontré Edge ni Chrome: la captura de pantalla, el PDF y las páginas hechas con JavaScript no están disponibles. Instala Chrome o ejecuta <code>python -m playwright install chromium</code>.</div>
           <details class="adv">
             <summary>Opciones avanzadas</summary>
@@ -190,7 +200,9 @@
       <div class="modal-head"><h3 id="m-title"></h3><button id="m-close" class="icon-btn" aria-label="Cerrar"><svg class="ic"><use href="#i-x"/></svg></button></div>
       <div id="m-files" class="file-tabs"></div>
       <div id="m-body" class="modal-body"></div>
+      <div id="m-trim" class="modal-trim hidden"></div>
       <div class="modal-foot">
+        <button id="m-cut" class="btn small hidden"><svg class="ic"><use href="#i-scissors"/></svg>Recortar</button>
         <button id="m-copy" class="btn small hidden"><svg class="ic"><use href="#i-copy"/></svg>Copiar texto</button>
         <button id="m-reveal" class="btn small"><svg class="ic"><use href="#i-folder"/></svg>Mostrar en carpeta</button>
         <button id="m-delete" class="btn small danger"><svg class="ic"><use href="#i-trash"/></svg>Eliminar</button>

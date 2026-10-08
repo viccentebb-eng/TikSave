@@ -73,6 +73,64 @@ function relPath(abs) {
   return a.toLowerCase().startsWith(base.toLowerCase() + "/") ? a.slice(base.length + 1) : a;
 }
 
+// ---------- selector de rango (recorte) ----------
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+function fmtClock(sec) {
+  sec = Math.max(0, sec);
+  const hh = Math.floor(sec / 3600), mm = Math.floor((sec % 3600) / 60), ss = sec % 60;
+  const ssTxt = (ss < 10 ? "0" : "") + ss.toFixed(1).replace(/\.0$/, "");
+  return hh ? `${hh}:${String(mm).padStart(2, "0")}:${ssTxt}` : `${mm}:${ssTxt}`;
+}
+function parseClock(txt) {
+  const parts = String(txt).trim().replace(",", ".").split(":").map(Number);
+  if (!parts.length || parts.length > 3 || parts.some((n) => Number.isNaN(n) || n < 0)) return null;
+  return parts.reduce((acc, p) => acc * 60 + p, 0);
+}
+// Doble control deslizante + campos de tiempo. Devuelve { get, set, setDuration, isFull }.
+function makeRange(container, { duration = 0, onChange = () => {}, onScrub = () => {} } = {}) {
+  const GAP = 0.2;
+  let max = Math.max(GAP * 2, duration);
+  const a = h("input", { type: "range", min: 0, max, step: 0.1, value: 0, "aria-label": "Inicio del recorte" });
+  const b = h("input", { type: "range", min: 0, max, step: 0.1, value: max, "aria-label": "Fin del recorte" });
+  const fill = h("div", { class: "rng-fill" });
+  const ta = h("input", { type: "text", inputmode: "decimal", "aria-label": "Inicio (mm:ss)" });
+  const tb = h("input", { type: "text", inputmode: "decimal", "aria-label": "Fin (mm:ss)" });
+  const len = h("span", { class: "rng-len" });
+  const get = () => ({ start: +a.value, end: +b.value });
+  const paint = () => {
+    const { start, end } = get();
+    fill.style.left = `${(start / max) * 100}%`;
+    fill.style.width = `${((end - start) / max) * 100}%`;
+    a.style.zIndex = start > max / 2 ? 3 : 1; b.style.zIndex = 2;
+    ta.value = fmtClock(start); tb.value = fmtClock(end);
+    len.textContent = `Duración: ${fmtClock(end - start)}`;
+  };
+  a.addEventListener("input", () => { a.value = Math.min(+a.value, +b.value - GAP); paint(); onChange(get()); onScrub(+a.value, "start"); });
+  b.addEventListener("input", () => { b.value = Math.max(+b.value, +a.value + GAP); paint(); onChange(get()); onScrub(+b.value, "end"); });
+  const typed = (input, which) => () => {
+    const v = parseClock(input.value);
+    if (v != null) {
+      if (which === "start") a.value = clamp(v, 0, +b.value - GAP); else b.value = clamp(v, +a.value + GAP, max);
+    }
+    paint(); onChange(get()); onScrub(which === "start" ? +a.value : +b.value, which);
+  };
+  ta.addEventListener("change", typed(ta, "start")); tb.addEventListener("change", typed(tb, "end"));
+  container.replaceChildren(h("div", { class: "rng" },
+    h("div", { class: "rng-track" }, fill, a, b),
+    h("div", { class: "rng-times" }, h("label", {}, "Inicio", ta), len, h("label", {}, "Fin", tb))));
+  paint();
+  return {
+    get,
+    set(start, end) {
+      if (start != null) a.value = clamp(start, 0, +b.value - GAP);
+      if (end != null) b.value = clamp(end, +a.value + GAP, max);
+      paint(); onChange(get());
+    },
+    setDuration(d) { max = Math.max(GAP * 2, d); a.max = b.max = max; a.value = 0; b.value = max; paint(); },
+    isFull: () => +a.value <= 0.05 && +b.value >= max - 0.05,
+  };
+}
+
 // ---------- pestañas ----------
 function showTab(name) {
   $$(".tab").forEach((t) => { const on = t.dataset.tab === name; t.classList.toggle("active", on); t.setAttribute("aria-selected", on); });
@@ -88,6 +146,8 @@ const urlsEl = $("#urls");
 let sites = {};
 let previewTimer = null;
 let lastPreviewed = "";
+let previewDuration = 0;
+let rangeDl = null;
 
 function hostOk(url) {
   try {
@@ -124,13 +184,16 @@ function updateDownloadUi() {
   $("#go").disabled = valid.length === 0;
   $("#go-label").textContent = valid.length > 1 ? `Descargar ${valid.length} enlaces` : "Descargar";
   $("#profile-box").classList.toggle("hidden", !(valid.length === 1 && isProfile(valid[0])));
+  const trimmable = valid.length === 1 && !isProfile(valid[0]) && previewDuration >= 3 && ["video", "mp3", "audio"].includes(mode);
+  $("#trim-box").classList.toggle("hidden", !trimmable);
 
   clearTimeout(previewTimer);
   if (valid.length === 1 && !isProfile(valid[0])) {
     if (valid[0] !== lastPreviewed) previewTimer = setTimeout(() => loadPreview(valid[0]), 500);
   } else {
     $("#preview").classList.add("hidden");
-    lastPreviewed = "";
+    lastPreviewed = ""; previewDuration = 0;
+    $("#trim-on").checked = false; $("#trim-ui").classList.add("hidden");
   }
   store.set("download-opts", { mode, transcript: $("#x-transcript").checked, notes: $("#x-notes").checked, cover: $("#x-cover").checked });
 }
@@ -152,6 +215,10 @@ async function loadPreview(url) {
       ? h("span", { class: "badge ok" }, `Subtítulos: ${d.subtitle_langs.slice(0, 3).join(", ")}`)
       : h("span", { class: "badge warn" }, "Sin subtítulos"));
     $("#preview").classList.remove("hidden");
+    previewDuration = d.duration || 0;
+    $("#trim-on").checked = false; $("#trim-ui").classList.add("hidden");
+    rangeDl = previewDuration >= 3 ? makeRange($("#trim-ui"), { duration: previewDuration }) : null;
+    updateDownloadUi();
   } catch (err) {
     if (lastPreviewed !== url) return;
     $("#preview").classList.add("hidden");
@@ -161,6 +228,8 @@ async function loadPreview(url) {
 
 urlsEl.addEventListener("input", updateDownloadUi);
 $$('input[name="mode"], #x-transcript, #x-notes, #x-cover').forEach((el) => el.addEventListener("change", updateDownloadUi));
+
+$("#trim-on").addEventListener("change", () => $("#trim-ui").classList.toggle("hidden", !$("#trim-on").checked));
 
 $("#paste").addEventListener("click", async () => {
   try {
@@ -196,11 +265,17 @@ $("#go").addEventListener("click", async () => {
   const btn = $("#go"); btn.disabled = true;
   try {
     const mode = currentMode();
-    const res = await post("/api/download/batch", {
-      urls, mode, transcript: $("#x-transcript").checked, notes: $("#x-notes").checked, cover: $("#x-cover").checked,
-    });
-    toast(`${res.jobs.length} descarga${res.jobs.length === 1 ? "" : "s"} en cola.`, "ok");
-    urlsEl.value = ""; lastPreviewed = "";
+    const extras = { transcript: $("#x-transcript").checked, notes: $("#x-notes").checked, cover: $("#x-cover").checked };
+    const clip = urls.length === 1 && !$("#trim-box").classList.contains("hidden") && $("#trim-on").checked
+      && rangeDl && !rangeDl.isFull() ? rangeDl.get() : null;
+    if (clip) {
+      await post("/api/download", { url: urls[0], mode, ...extras, start: clip.start, end: clip.end });
+      toast(`Descarga del tramo ${fmtClock(clip.start)}–${fmtClock(clip.end)} en cola.`, "ok");
+    } else {
+      const res = await post("/api/download/batch", { urls, mode, ...extras });
+      toast(`${res.jobs.length} descarga${res.jobs.length === 1 ? "" : "s"} en cola.`, "ok");
+    }
+    urlsEl.value = ""; lastPreviewed = ""; previewDuration = 0;
     refreshJobs();
   } catch (err) { toast(err.message, "error"); }
   updateDownloadUi();
@@ -227,6 +302,7 @@ async function capture() {
     await post("/api/capture", {
       url, markdown: $("#c-md").checked, html: $("#c-html").checked,
       screenshot: $("#c-shot").checked, pdf: $("#c-pdf").checked,
+      docx: $("#c-docx").checked, epub: $("#c-epub").checked, images: $("#c-images").checked,
       full_content: $("#c-full").value === "1", render: $("#c-render").value,
       depth: Number($("#c-depth").value), max_pages: Math.min(50, Math.max(1, Number($("#c-max").value) || 10)),
     });
@@ -244,14 +320,14 @@ let prevStatus = new Map();
 let lastJobs = [];
 
 const STATUS = { queued: "En cola", starting: "Preparando", downloading: "Trabajando", processing: "Procesando", done: "Listo", error: "Error", cancelled: "Cancelado" };
-const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web" };
+const MODE = { video: "Video MP4", mp3: "Audio MP3", audio: "Audio original", transcript: "Texto", cover: "Portada", capture: "Captura web", trim: "Recorte" };
 const ACTIVE = new Set(["queued", "starting", "downloading", "processing"]);
 
 function jobCard(job) {
   const card = h("div", { class: "job", "data-id": job.id });
   card.append(
     h("div", { class: "job-top" },
-      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : "download")),
+      h("div", { class: "job-ic" }, icon(job.kind === "capture" ? "globe" : job.kind === "trim" ? "scissors" : "download")),
       h("div", { class: "job-main" }, h("div", { class: "job-title" }), h("div", { class: "job-sub" }))),
     h("div", { class: "track" }, h("div", { class: "bar" })),
     h("div", { class: "job-state" }, h("span", { class: "js-left" }), h("span", { class: "js-right" })),
@@ -269,6 +345,9 @@ function updateJobCard(card, job) {
   if (job.options?.transcript && job.mode !== "transcript") extras.push("texto");
   if (job.options?.notes) extras.push("ficha");
   if (job.options?.cover && job.mode !== "cover") extras.push("portada");
+  if (job.kind === "download" && (job.options?.start != null || job.options?.end != null)) {
+    extras.push(`recorte ${fmtClock(job.options.start || 0)}–${job.options.end ? fmtClock(job.options.end) : "fin"}`);
+  } else if (job.kind === "trim") extras.push(`${fmtClock(job.options.start)}–${fmtClock(job.options.end)}`);
   $(".job-sub", card).textContent = [MODE[job.mode] || job.mode, job.uploader && (job.kind === "capture" ? job.uploader : `@${String(job.uploader).replace(/^@/, "")}`),
     extras.length && `+ ${extras.join(", ")}`].filter(Boolean).join(" · ");
   const pct = Math.round(job.progress || 0);
@@ -350,8 +429,9 @@ function renderLibrary() {
   for (const item of items) {
     const thumb = h("div", { class: "lib-thumb" }, h("span", { class: "lib-kind" }, KIND_LABEL[item.type] || item.type));
     if (item.cover) thumb.prepend(h("img", { src: `/files/${encPath(norm(item.cover))}`, alt: "", loading: "lazy" }));
+    else if (item.snippet) { thumb.classList.add("has-snippet"); thumb.prepend(h("div", { class: "lib-snippet" }, item.snippet)); }
     else thumb.prepend(icon(item.type === "site" ? "globe" : "file"));
-    grid.append(h("button", { class: "lib-card", onclick: () => openItem(item) }, thumb,
+    grid.append(h("button", { class: "lib-card", title: item.name, onclick: () => openItem(item) }, thumb,
       h("div", { class: "lib-info" }, h("div", { class: "lib-name" }, item.name),
         h("div", { class: "lib-meta" }, [item.platform && item.platform !== "Sitios" ? item.platform : null, fmtSize(item.size), fmtDate(item.modified)].filter(Boolean).join(" · ")))));
   }
@@ -387,6 +467,8 @@ function openItem(item) {
 }
 async function showFile(f) {
   modalFile = f;
+  closeCutter();
+  $("#m-cut").classList.toggle("hidden", !["video", "audio"].includes(f.kind));
   $$("#m-files button").forEach((b) => b.classList.toggle("active", b.dataset.path === f.path));
   const body = $("#m-body"); body.replaceChildren();
   const url = `/files/${encPath(norm(f.path))}`;
@@ -407,7 +489,48 @@ async function showFile(f) {
     } catch { body.append(h("p", { class: "muted" }, "No se pudo leer el archivo.")); }
   }
 }
+function closeCutter() {
+  $("#m-trim").classList.add("hidden"); $("#m-trim").replaceChildren();
+}
+function openCutter() {
+  const box = $("#m-trim");
+  if (!box.classList.contains("hidden")) { closeCutter(); return; }
+  const media = $("#m-body video, #m-body audio");
+  if (!media || !modalFile) return;
+  const build = () => {
+    const holder = h("div");
+    const range = makeRange(holder, {
+      duration: media.duration,
+      onScrub: (t, which) => { media.pause(); media.currentTime = which === "end" ? Math.max(0, t - 0.1) : t; },
+    });
+    const precise = h("input", { type: "checkbox", checked: true });
+    const preview = () => {
+      const { start, end } = range.get();
+      media.currentTime = start; media.play();
+      const stop = () => { if (media.currentTime >= end) { media.pause(); media.removeEventListener("timeupdate", stop); } };
+      media.addEventListener("timeupdate", stop);
+    };
+    const save = async () => {
+      const { start, end } = range.get();
+      try {
+        await post("/api/trim", { path: norm(modalFile.path), start, end, precise: precise.checked });
+        toast("Recorte en cola.", "ok"); closeCutter(); refreshJobs();
+      } catch (err) { toast(err.message, "error"); }
+    };
+    box.replaceChildren(holder, h("div", { class: "rng-actions", style: "margin-top:12px" },
+      h("button", { class: "btn small", onclick: () => range.set(media.currentTime, null) }, "Inicio = aquí"),
+      h("button", { class: "btn small", onclick: () => range.set(null, media.currentTime) }, "Fin = aquí"),
+      h("button", { class: "btn small", onclick: preview }, icon("play"), "Ver tramo"),
+      h("label", { class: "switch" }, precise, h("span", {}, "Corte exacto ", h("small", {}, "(más lento)"))),
+      h("button", { class: "btn small primary", onclick: save }, icon("scissors"), "Guardar recorte")));
+    box.classList.remove("hidden");
+  };
+  if (media.readyState >= 1 && isFinite(media.duration)) build(); else media.addEventListener("loadedmetadata", build, { once: true });
+}
+$("#m-cut").addEventListener("click", openCutter);
+
 function closeModal() {
+  closeCutter();
   $("#modal").classList.add("hidden"); $("#m-body").replaceChildren(); modalItem = modalFile = null;
 }
 $("#m-close").addEventListener("click", closeModal);
@@ -441,6 +564,7 @@ function renderSystem() {
     [c.curl_cffi, `curl_cffi: ${c.curl_cffi ? "instalado" : "FALTA"}`, c.curl_cffi ? "Necesario para que TikTok no bloquee las descargas." : "TikTok bloqueará las descargas. Ejecuta install-windows.bat otra vez."],
     [c.ffmpeg, `FFmpeg: ${c.ffmpeg ? "instalado" : "no encontrado"}`, c.ffmpeg ? "MP3, subtítulos SRT y portadas JPG disponibles." : "Sin él no hay MP3 ni mezcla de audio y video."],
     [c.browser, `Navegador para capturas: ${c.browser ? "disponible" : "no encontrado"}`, c.browser ? "Capturas de pantalla, PDF y páginas con JavaScript." : "Instala Edge o Chrome."],
+    [c.pandoc, `Exportar a Word/EPUB (pandoc): ${c.pandoc ? "disponible" : "no encontrado"}`, c.pandoc ? "Word con ecuaciones editables y EPUB." : "pip install pypandoc_binary"],
     [c.whisper ? true : null, `Transcripción automática (Whisper): ${c.whisper ? "activa" : "opcional"}`, c.whisper ? "Se usa cuando un video no trae subtítulos." : "Para videos sin subtítulos: pip install faster-whisper"],
     [true, `yt-dlp ${c.yt_dlp || ""}`, ""],
   ];
@@ -448,6 +572,7 @@ function renderSystem() {
   rows.forEach(([ok, title, note]) => ul.append(h("li", {}, h("span", { class: `dot ${ok === true ? "" : ok === null ? "warn" : "bad"}` }), h("span", {}, h("b", {}, title), note ? ` — ${note}` : ""))));
   $("#ver").textContent = `v${health?.version || ""}`;
   $("#cap-nobrowser").classList.toggle("hidden", !!c.browser);
+  ["#c-docx", "#c-epub"].forEach((id) => { $(id).disabled = !c.pandoc; if (!c.pandoc) $(id).checked = false; });
   ["#c-shot", "#c-pdf"].forEach((id) => { $(id).disabled = !c.browser; if (!c.browser) $(id).checked = false; });
 }
 $("#s-save").addEventListener("click", async () => {

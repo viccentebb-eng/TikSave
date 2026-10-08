@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import yt_dlp
+from yt_dlp.postprocessor import PostProcessor
+from yt_dlp.utils import download_range_func
 
 from app.config import SettingsStore
 from app.jobs import JobCancelled, JobStore
@@ -79,6 +81,44 @@ def pick_subtitle_langs(info: dict, wanted: list[str]) -> list[str]:
         if keys:
             return keys[:1]
     return []
+
+
+_NOISE = re.compile(r"\s*[\(\[](official|oficial|lyrics?|letra|audio|video|v[ií]deo|hd|4k|visuali[sz]er|music video)[^\)\]]*[\)\]]", re.I)
+
+
+def split_artist_title(title: str) -> tuple[str | None, str]:
+    """'Artista - Cancion (Official Video)' -> ('Artista', 'Cancion')."""
+    clean = _NOISE.sub("", title or "").strip()
+    match = re.match(r"^(.+?)\s[-\u2013\u2014]\s(.+)$", clean)
+    return (match.group(1).strip(), match.group(2).strip()) if match else (None, clean)
+
+
+class TagFixer(PostProcessor):
+    """Completa artista/titulo/album antes de escribir los metadatos del audio."""
+
+    def run(self, info):
+        title = info.get("track") or info.get("title") or ""
+        artist = info.get("artist") or info.get("creator")
+        guessed_artist, guessed_title = split_artist_title(title)
+        if not info.get("track") or not artist:
+            info["track"] = guessed_title or title
+            if not artist:
+                uploader = re.sub(r"\s*-\s*Topic$", "", info.get("uploader") or info.get("channel") or "")
+                artist = guessed_artist or uploader or None
+        if artist:
+            info["artist"] = artist
+        if not info.get("album") and info.get("playlist_title") and info.get("playlist_title") != artist:
+            info["album"] = info["playlist_title"]
+        if info.get("release_year") and not info.get("upload_date"):
+            info["upload_date"] = f"{info['release_year']}0101"
+        return [], info
+
+
+def format_clip(seconds: float) -> str:
+    seconds = int(seconds)
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s"
 
 
 class Downloader:
@@ -160,12 +200,20 @@ class Downloader:
 
     # --------------------------------------------------------------- enqueue
     def enqueue(self, url: str, mode: str = "video", transcript: bool = False,
-                cover: bool = False, notes: bool = False) -> dict[str, Any]:
+                cover: bool = False, notes: bool = False, start: float | None = None,
+                end: float | None = None) -> dict[str, Any]:
         url, site = validate_media_url(url)
         if mode not in MODES:
             raise ValueError("Modo de descarga invalido.")
+        if start is not None or end is not None:
+            start = max(0.0, float(start or 0))
+            if end is not None and float(end) <= start:
+                raise ValueError("El final del recorte debe ser mayor que el inicio.")
+            if mode in {"transcript", "cover"}:
+                start = end = None
         options = {"site": site, "transcript": transcript or mode == "transcript",
-                   "cover": cover or mode == "cover", "notes": notes}
+                   "cover": cover or mode in {"cover", "transcript"}, "notes": notes, "start": start,
+                   "end": float(end) if end is not None else None}
         job = self.jobs.create("download", url, mode, options)
         self.pool.submit(self._run, job.id)
         return self.jobs.get(job.id) or {}
@@ -176,7 +224,7 @@ class Downloader:
             return None
         o = old["options"]
         return self.enqueue(old["url"], old["mode"], o.get("transcript", False), o.get("cover", False),
-                            o.get("notes", False))
+                            o.get("notes", False), o.get("start"), o.get("end"))
 
     # ------------------------------------------------------------------- run
     def _run(self, job_id: str) -> None:
@@ -206,9 +254,13 @@ class Downloader:
         if mode == "mp3":
             return {"format": "bestaudio/best", "postprocessors": [
                 {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
-                {"key": "FFmpegMetadata"}]}
+                {"key": "FFmpegMetadata", "add_metadata": True}]}
         if mode == "audio":
-            return {"format": "bestaudio/best"}
+            if not has_ffmpeg:
+                return {"format": "bestaudio/best"}
+            return {"format": "bestaudio/best", "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "best"},
+                {"key": "FFmpegMetadata", "add_metadata": True}]}
         return {"format": "best/bestvideo*+bestaudio", "skip_download": True}
 
     def _download(self, job_id: str) -> None:
@@ -250,10 +302,16 @@ class Downloader:
             if data.get("status") == "started":
                 self.jobs.update(job_id, status="processing", stage="Procesando archivo", progress=99.0)
 
+        start, end = options.get("start"), options.get("end")
+        clipped = start is not None or end is not None
+        template = OUTPUT_TEMPLATE
+        if clipped:
+            label = f"{format_clip(start or 0)}-{format_clip(end)}" if end else f"desde {format_clip(start or 0)}"
+            template = template.replace(".%(ext)s", f" (recorte {label}).%(ext)s")
         opts: dict[str, Any] = {
             **self._base_options(),
             **self._format_options(mode, caps["ffmpeg"]),
-            "outtmpl": str(out_dir / OUTPUT_TEMPLATE),
+            "outtmpl": str(out_dir / template),
             "progress_hooks": [progress_hook],
             "postprocessor_hooks": [pp_hook],
         }
@@ -266,7 +324,18 @@ class Downloader:
                 if caps["ffmpeg"]:
                     opts["postprocessors"] = [*opts.get("postprocessors", []),
                                               {"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"}]
-        if want_cover:
+        if clipped:
+            if not caps["ffmpeg"]:
+                raise RuntimeError("ffmpeg no encontrado")
+            opts["download_ranges"] = download_range_func(None, [(start or 0, end if end else float("inf"))])
+            opts["force_keyframes_at_cuts"] = True
+        embed_cover = mode in {"mp3", "audio"} and caps["ffmpeg"]
+        if embed_cover:  # la portada va DENTRO del archivo de audio
+            opts["writethumbnail"] = True
+            pps = opts.get("postprocessors", [])
+            opts["postprocessors"] = [*pps, {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"},
+                                      {"key": "EmbedThumbnail", "already_have_thumbnail": bool(want_cover)}]
+        if want_cover and not embed_cover:
             opts["writethumbnail"] = True
             if caps["ffmpeg"]:
                 opts["postprocessors"] = [*opts.get("postprocessors", []),
@@ -274,6 +343,8 @@ class Downloader:
 
         self.jobs.update(job_id, status="downloading", stage="Descargando")
         with yt_dlp.YoutubeDL(opts) as ydl:
+            if mode in {"mp3", "audio"}:
+                ydl.add_post_processor(TagFixer(ydl), when="pre_process")
             info = ydl.extract_info(url, download=True)
             downloads = info.get("requested_downloads") or []
             media_path = Path(downloads[0]["filepath"]) if downloads and downloads[0].get("filepath") else None

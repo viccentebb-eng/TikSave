@@ -18,7 +18,16 @@
       <button data-kit="1" title="Transcripción + ficha Markdown + portada">Kit para IA (texto + ficha)</button>
     </section>
     <section class="buttons">
-      <button id="capture" class="hidden">Capturar esta página (Markdown + HTML)</button>
+      <div id="cap" class="hidden">
+        <button id="capture">Capturar esta página</button>
+        <div class="fmts" aria-label="Formatos de captura">
+          <label><input type="checkbox" id="f-md" checked>Markdown</label>
+          <label><input type="checkbox" id="f-docx">Word</label>
+          <label><input type="checkbox" id="f-pdf">PDF</label>
+          <label><input type="checkbox" id="f-html">HTML</label>
+        </div>
+        <div class="fine">Guarda lo que ves ahora en tu navegador, con tu sesión: sirve para ChatGPT, Gemini y páginas con login. Incluye fórmulas, código e imágenes.</div>
+      </div>
       <button id="open" class="ghost">Abrir TikSave</button>
     </section>
     <div id="bar" class="track hidden"><div id="fill"></div></div>

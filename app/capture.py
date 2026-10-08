@@ -20,9 +20,10 @@ from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, UnicodeDammit
-from markdownify import markdownify
 
 from app.config import SettingsStore
+from app.convert import (CHAT_HOSTS, html_to_markdown, has_pandoc, localize_images, page_meta,  # noqa: F401
+                         pandoc_convert)
 from app.jobs import JobCancelled, JobStore
 from app.security import allow_private, assert_public_host, validate_web_url
 
@@ -32,13 +33,16 @@ MAX_PAGE_BYTES = 15 * 1024 * 1024
 MAX_ASSET_BYTES = 4 * 1024 * 1024
 MAX_TOTAL_ASSET_BYTES = 30 * 1024 * 1024
 SKIP_LINK_EXT = re.compile(r"\.(pdf|zip|rar|7z|exe|dmg|mp4|mp3|avi|mov|jpe?g|png|gif|webp|svg|ico|css|js|xml)(\?|$)", re.I)
-NOISE_TAGS = ["script", "style", "noscript", "template", "svg", "iframe", "canvas", "form", "dialog", "button"]
-CHROME_TAGS = ["nav", "footer", "aside"]
-NOISE_ATTR = re.compile(r"(cookie|consent|newsletter|subscribe|popup|modal|advert|sponsor|sidebar|breadcrumb|share-|social)", re.I)
 
 
 class CaptureError(Exception):
     pass
+
+
+class HttpStatusError(CaptureError):
+    def __init__(self, status: int) -> None:
+        super().__init__(f"El sitio respondio con error HTTP {status}.")
+        self.status = status
 
 
 @dataclass
@@ -47,6 +51,10 @@ class CaptureOptions:
     html: bool = False
     screenshot: bool = False
     pdf: bool = False
+    docx: bool = False
+    epub: bool = False
+    images: bool = True  # guardar las imagenes en una carpeta images/
+    from_extension: bool = False
     full_content: bool = False  # False = solo el articulo principal
     render: str = "auto"  # auto | always | never (JavaScript con navegador)
     depth: int = 0  # 0 = solo la pagina; 1-2 = seguir enlaces del mismo sitio
@@ -74,7 +82,7 @@ def safe_get(client: httpx.Client, url: str, max_bytes: int = MAX_PAGE_BYTES) ->
                 current = urljoin(current, resp.headers["location"])
                 continue
             if resp.status_code >= 400:
-                raise CaptureError(f"El sitio respondio con error HTTP {resp.status_code}.")
+                raise HttpStatusError(resp.status_code)
             declared = resp.headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > max_bytes:
                 raise CaptureError("El recurso es demasiado grande.")
@@ -93,77 +101,6 @@ def decode_html(content: bytes, charset: str | None) -> str:
 
 
 # ------------------------------------------------------------- extraccion
-def page_meta(soup: BeautifulSoup, url: str) -> dict:
-    def meta(*names: str) -> str | None:
-        for name in names:
-            tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
-            if tag and tag.get("content"):
-                return tag["content"].strip()
-        return None
-
-    title = meta("og:title", "twitter:title") or (soup.title.string.strip() if soup.title and soup.title.string else None)
-    if not title:
-        h1 = soup.find("h1")
-        title = h1.get_text(" ", strip=True) if h1 else None
-    image = meta("og:image", "twitter:image")
-    return {"title": title or urlparse(url).hostname, "description": meta("og:description", "description"),
-            "author": meta("author", "article:author"), "published": meta("article:published_time"),
-            "language": (soup.html.get("lang") if soup.html else None), "image": urljoin(url, image) if image else None,
-            "site_name": meta("og:site_name")}
-
-
-def _text_len(tag) -> int:
-    return len(tag.get_text(" ", strip=True))
-
-
-def main_container(soup: BeautifulSoup, full: bool):
-    body = soup.body or soup
-    if full:
-        return body
-    articles = soup.find_all("article")
-    if articles:
-        best = max(articles, key=_text_len)
-        if _text_len(best) > 300:
-            return best
-    main = soup.find("main") or soup.find(attrs={"role": "main"})
-    if main and _text_len(main) > 300:
-        return main
-    return body
-
-
-def html_to_markdown(html: str, base_url: str, full: bool = False) -> tuple[str, dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    meta = page_meta(soup, base_url)
-    container = main_container(soup, full)
-    for tag in container.find_all(NOISE_TAGS):
-        tag.decompose()
-    if not full:
-        for tag in container.find_all(CHROME_TAGS):
-            tag.decompose()
-        for tag in container.find_all(True):
-            if tag.attrs is None:
-                continue
-            ident = f"{' '.join(tag.get('class') or [])} {tag.get('id') or ''}"
-            if NOISE_ATTR.search(ident):
-                tag.decompose()
-    for img in container.find_all("img"):
-        src = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or ""
-        if not src or src.startswith("data:"):
-            img.decompose()
-        else:
-            img["src"] = urljoin(base_url, src)
-    for a in container.find_all("a", href=True):
-        href = a["href"]
-        if href.startswith(("javascript:", "mailto:", "tel:", "#")):
-            del a["href"]
-        else:
-            a["href"] = urljoin(base_url, href)
-    text = markdownify(str(container), heading_style="ATX", bullets="-")
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text, meta
-
-
 def front_matter(meta: dict, url: str) -> str:
     def q(v: str) -> str:
         return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
@@ -213,6 +150,8 @@ class AssetInliner:
         def repl(match: re.Match) -> str:
             raw = match.group(2).strip()
             if raw.startswith(("data:", "#")):
+                return match.group(0)
+            if re.search(r"\.(ttf|otf|woff|eot)(\?|#|$)", raw, re.I):  # el navegador usa el woff2 listado antes
                 return match.group(0)
             uri = self.data_uri(urljoin(base, raw))
             return f"url({match.group(1)}{uri}{match.group(1)})" if uri else match.group(0)
@@ -332,7 +271,7 @@ _SCROLL_JS = """async () => {
 }"""
 
 
-def render_page(url: str, shot: Path | None, pdf: Path | None) -> tuple[str, str, list[str]]:
+def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path | None = None) -> tuple[str, str, list[str]]:
     """Abre la pagina en un navegador real. Devuelve (html_renderizado, url_final, avisos)."""
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
@@ -363,7 +302,7 @@ def render_page(url: str, shot: Path | None, pdf: Path | None) -> tuple[str, str
             page = context.new_page()
             page.set_default_timeout(30000)
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.goto(html_file.as_uri() if html_file else url, wait_until="domcontentloaded", timeout=30000)
             except PlaywrightError as exc:
                 raise CaptureError(f"No se pudo abrir la pagina: {str(exc).splitlines()[0][:160]}") from exc
             try:
@@ -399,16 +338,28 @@ def slugify(text: str, fallback: str = "pagina") -> str:
 class CaptureService:
     def __init__(self, settings: SettingsStore, jobs: JobStore, pool: ThreadPoolExecutor) -> None:
         self.settings, self.jobs, self.pool = settings, jobs, pool
+        self._sources: dict[str, str] = {}  # DOM recibido de la extension (solo en memoria)
 
-    def enqueue(self, url: str, options: CaptureOptions) -> dict:
-        url = validate_web_url(url)
-        if not (options.markdown or options.html or options.screenshot or options.pdf):
+    def enqueue(self, url: str, options: CaptureOptions, source_html: str | None = None) -> dict:
+        if source_html is not None:  # DOM ya renderizado por la extension: no se descarga nada de la pagina
+            parsed = urlparse((url or "").strip())
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("Direccion de la pagina no valida.")
+            url = url.strip()
+            options.from_extension = True
+        else:
+            url = validate_web_url(url)
+        if not (options.markdown or options.html or options.screenshot or options.pdf or options.docx or options.epub):
             raise ValueError("Elige al menos un formato de captura.")
-        options.depth = max(0, min(options.depth, 2))
+        options.depth = 0 if source_html is not None else max(0, min(options.depth, 2))
         options.max_pages = max(1, min(options.max_pages, 50))
         if options.render not in {"auto", "always", "never"}:
             options.render = "auto"
         job = self.jobs.create("capture", url, "capture", options.__dict__.copy())
+        if source_html is not None:
+            self._sources[job.id] = source_html
+            while len(self._sources) > 5:
+                self._sources.pop(next(iter(self._sources)))
         self.pool.submit(self._run, job.id)
         return self.jobs.get(job.id) or {}
 
@@ -416,7 +367,12 @@ class CaptureService:
         old = self.jobs.get(job_id)
         if not old or old["kind"] != "capture":
             return None
-        return self.enqueue(old["url"], CaptureOptions(**old["options"]))
+        options = CaptureOptions(**old["options"])
+        if options.from_extension:
+            if job_id not in self._sources:
+                raise ValueError("Esta captura vino de la extension: vuelve a capturar la pagina desde ella.")
+            return self.enqueue(old["url"], options, self._sources[job_id])
+        return self.enqueue(old["url"], options)
 
     def _run(self, job_id: str) -> None:
         try:
@@ -436,83 +392,178 @@ class CaptureService:
 
     def _capture(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
+        host = urlparse(job["url"]).hostname or "sitio"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = self.settings.download_dir / "Sitios" / f"{slugify(host)}-{stamp}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._capture_into(job_id, job, out_dir, host)
+        except BaseException:
+            shutil.rmtree(out_dir, ignore_errors=True)  # no dejar carpetas vacias de capturas fallidas
+            raise
+
+    def _capture_into(self, job_id: str, job: dict, out_dir: Path, host: str) -> None:
         opts = CaptureOptions(**job["options"])
         url = job["url"]
+        source_html = self._sources.get(job_id)
         check = lambda: self.jobs.check_cancel(job_id)  # noqa: E731
         step = lambda stage, pct: self.jobs.update(job_id, status="downloading", stage=stage, progress=pct)  # noqa: E731
         warnings: list[str] = []
         caps_browser = browser_available()
         need_browser_outputs = opts.screenshot or opts.pdf
-
-        host = urlparse(url).hostname or "sitio"
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out_dir = self.settings.download_dir / "Sitios" / f"{slugify(host)}-{stamp}"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        login_hint = ("Si la pagina exige iniciar sesion (ChatGPT, Gemini, redes sociales), usa la extension de TikSave: "
+                      "captura lo que ya ves en tu navegador, con tu sesion.")
 
         step("Abriendo la pagina", 5)
         with _client() as client:
             html = final_url = None
-            rendered = False
-            slug_tmp = out_dir / "_tmp"
-            shot_tmp = slug_tmp.with_suffix(".png") if opts.screenshot else None
-            pdf_tmp = slug_tmp.with_suffix(".pdf") if opts.pdf else None
+            rendered = source_html is not None
+            shot_tmp = out_dir / "_tmp.png" if opts.screenshot else None
+            pdf_tmp = out_dir / "_tmp.pdf" if opts.pdf else None
+            early_render = False  # shot/pdf ya generados desde la URL en vivo
 
-            static_html = None
-            if opts.render != "always" and not need_browser_outputs:
-                content, final_url, ctype, charset = safe_get(client, url)
-                if "html" not in ctype.lower() and "xml" not in ctype.lower() and content[:1] != b"<":
-                    raise CaptureError(f"El enlace no es una pagina web ({ctype or 'tipo desconocido'}).")
-                static_html = decode_html(content, charset)
-                html = static_html
-            check()
-            wants_render = opts.render == "always" or need_browser_outputs
-            if opts.render == "auto" and static_html is not None:
-                visible = len(BeautifulSoup(static_html, "html.parser").get_text(" ", strip=True))
-                wants_render = visible < 400  # probable pagina hecha con JavaScript
-            if wants_render and opts.render != "never":
-                if caps_browser:
-                    step("Renderizando con navegador", 25)
+            if source_html is not None:
+                html, final_url = source_html, url
+            else:
+                static_html, blocked = None, False
+                if opts.render != "always" and not need_browser_outputs:
                     try:
-                        html, final_url, w = render_page(final_url or url, shot_tmp, pdf_tmp)
-                        rendered, warnings = True, warnings + w
-                    except CaptureError:
-                        if need_browser_outputs or static_html is None:
-                            raise
-                        warnings.append("No se pudo renderizar JavaScript; se uso el HTML estatico.")
-                elif need_browser_outputs:
-                    warnings.append("Captura de pantalla/PDF omitidos: no hay navegador. Instala Edge/Chrome o ejecuta "
-                                    "'python -m playwright install chromium'.")
-                elif opts.render == "always":
-                    warnings.append("Renderizado JavaScript omitido: no hay navegador disponible.")
-            if html is None:
-                content, final_url, ctype, charset = safe_get(client, url)
-                html = decode_html(content, charset)
+                        content, final_url, ctype, charset = safe_get(client, url)
+                        if "html" not in ctype.lower() and "xml" not in ctype.lower() and content[:1] != b"<":
+                            raise CaptureError(f"El enlace no es una pagina web ({ctype or 'tipo desconocido'}).")
+                        static_html = html = decode_html(content, charset)
+                    except HttpStatusError as exc:
+                        if exc.status in {401, 403, 429, 503} and caps_browser and opts.render != "never":
+                            blocked = True
+                            warnings.append("El sitio bloqueo la descarga directa; se abrio con el navegador.")
+                        else:
+                            raise CaptureError(f"{exc} {login_hint}") from exc
+                check()
+                wants_render = blocked or opts.render == "always" or need_browser_outputs
+                if opts.render == "auto" and static_html is not None:
+                    visible = len(BeautifulSoup(static_html, "html.parser").get_text(" ", strip=True))
+                    wants_render = visible < 400  # probable pagina hecha con JavaScript
+                if wants_render and opts.render != "never":
+                    if caps_browser:
+                        step("Renderizando con navegador", 25)
+                        try:
+                            html, final_url, w = render_page(final_url or url, shot_tmp, pdf_tmp)
+                            rendered, early_render, warnings = True, True, warnings + w
+                        except CaptureError:
+                            if need_browser_outputs or static_html is None:
+                                raise
+                            warnings.append("No se pudo renderizar JavaScript; se uso el HTML estatico.")
+                    elif need_browser_outputs:
+                        warnings.append("Captura de pantalla/PDF omitidos: no hay navegador. Instala Edge/Chrome o ejecuta "
+                                        "'python -m playwright install chromium'.")
+                    elif opts.render == "always":
+                        warnings.append("Renderizado JavaScript omitido: no hay navegador disponible.")
+                if html is None:
+                    content, final_url, ctype, charset = safe_get(client, url)
+                    html = decode_html(content, charset)
             check()
             final_url = final_url or url
 
             soup_meta = page_meta(BeautifulSoup(html, "html.parser"), final_url)
             slug = slugify(soup_meta["title"], slugify(host))
             files: list[Path] = []
-
-            def final_path(suffix: str) -> Path:
-                return out_dir / f"{slug}{suffix}"
+            final_path = lambda suffix: out_dir / f"{slug}{suffix}"  # noqa: E731
 
             for tmp, suffix in ((shot_tmp, ".png"), (pdf_tmp, ".pdf")):
                 if tmp and tmp.exists():
                     tmp.replace(final_path(suffix))
                     files.append(final_path(suffix))
 
-            if opts.markdown:
-                step("Convirtiendo a Markdown", 55)
-                body, meta = html_to_markdown(html, final_url, opts.full_content)
-                if len(body) < 80:
-                    warnings.append("Se extrajo muy poco texto; prueba 'Pagina completa' o 'Renderizar JavaScript'.")
-                final_path(".md").write_text(front_matter(meta, final_url) + "\n\n" + body + "\n", encoding="utf-8")
-                files.append(final_path(".md"))
-            if opts.html:
-                step("Guardando HTML offline (descargando recursos)", 70)
-                final_path(".html").write_text(inline_page(html, final_url, client, check), encoding="utf-8")
-                files.append(final_path(".html"))
+            # ---- texto (Markdown) y derivados ----
+            step("Convirtiendo a Markdown", 45)
+            body, meta = html_to_markdown(html, final_url, opts.full_content, keep_data_images=opts.images)
+            chat = meta.get("chat")
+            known_chat = next((name for domain, name in CHAT_HOSTS.items() if host == domain or host.endswith("." + domain)), None)
+            if known_chat and not chat:
+                if source_html is None:
+                    raise CaptureError(f"{known_chat} solo muestra la conversacion con tu sesion iniciada, y el servidor no la tiene "
+                                       "(lo que se veria es la pagina de inicio). Abre la conversacion en tu navegador y usa la "
+                                       "extension de TikSave: Capturar esta pagina.")
+                warnings.append(f"No encontre mensajes de {known_chat} en la pagina: puede que haya cambiado su formato.")
+            elif chat:
+                warnings.append(f"Conversacion de {chat} detectada: {meta['messages']} mensajes.")
+            elif source_html is None and len(body) < 800 and re.search(
+                    r"(iniciar sesi[oó]n|inicia sesi[oó]n|acceder|sign in|log ?in)", body, re.I):
+                warnings.append("Parece una pagina de inicio de sesion: el contenido real puede requerir tu cuenta. " + login_hint)
+            elif len(body) < 80:
+                warnings.append("Se extrajo muy poco texto; prueba 'Pagina completa' o 'Renderizar JavaScript'.")
+
+            reading = bool(chat)  # los chats se imprimen/guardan desde una vista de lectura limpia, no desde la app
+            need_md = opts.markdown or opts.docx or opts.epub or (reading and (opts.html or need_browser_outputs))
+            md_path = final_path(".md")
+            if need_md:
+                if opts.images:
+                    step("Guardando imagenes", 55)
+
+                    def fetch(src: str) -> tuple[bytes, str]:
+                        check()
+                        content, _, ctype, _ = safe_get(client, src, 8 * 1024 * 1024)
+                        return content, ctype
+
+                    body, saved, failed = localize_images(body, out_dir, fetch)
+                    if failed:
+                        warnings.append(f"{failed} imagen(es) no se pudieron guardar (si requieren sesion, usa la extension).")
+                else:
+                    body = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)", "", body)
+                md_path.write_text(front_matter(meta, final_url) + "\n\n" + body + "\n", encoding="utf-8")
+                if opts.markdown:
+                    files.append(md_path)
+            if opts.docx or opts.epub:
+                for fmt, wanted in (("docx", opts.docx), ("epub", opts.epub)):
+                    if not wanted:
+                        continue
+                    if not has_pandoc():
+                        warnings.append(f"No se genero el {fmt.upper()}: falta pypandoc (pip install pypandoc_binary).")
+                        continue
+                    step(f"Generando {fmt.upper()}", 65)
+                    try:
+                        pandoc_convert(md_path, fmt, final_path(f".{fmt}"), out_dir)
+                        files.append(final_path(f".{fmt}"))
+                    except Exception as exc:  # noqa: BLE001
+                        warnings.append(f"No se pudo generar el {fmt.upper()}: {str(exc)[:160]}")
+            check()
+
+            # ---- HTML offline / lectura, y PDF / captura cuando no salieron de la URL en vivo ----
+            render_src: Path | None = None
+            if reading and (opts.html or need_browser_outputs) and has_pandoc():
+                step("Generando vista de lectura", 75)
+                render_src = final_path(".html") if opts.html else out_dir / "_render.html"
+                try:
+                    pandoc_convert(md_path, "html", render_src, out_dir)
+                    if opts.html:
+                        files.append(render_src)
+                except Exception as exc:  # noqa: BLE001
+                    render_src = None
+                    warnings.append(f"No se pudo generar la vista de lectura: {str(exc)[:160]}")
+            elif opts.html or (need_browser_outputs and not early_render):
+                step("Guardando HTML offline (descargando recursos)", 75)
+                inlined = inline_page(html, final_url, client, check)
+                render_src = final_path(".html") if opts.html else out_dir / "_render.html"
+                render_src.write_text(inlined, encoding="utf-8")
+                if opts.html:
+                    files.append(render_src)
+            if need_browser_outputs and not early_render:
+                if render_src and caps_browser:
+                    step("Generando PDF / captura", 85)
+                    try:
+                        render_page(final_url, shot_tmp, pdf_tmp, html_file=render_src)
+                        for tmp, suffix in ((shot_tmp, ".png"), (pdf_tmp, ".pdf")):
+                            if tmp and tmp.exists():
+                                tmp.replace(final_path(suffix))
+                                files.append(final_path(suffix))
+                    except CaptureError as exc:
+                        warnings.append(str(exc))
+                elif not caps_browser:
+                    warnings.append("PDF / captura de pantalla omitidos: no hay navegador (Edge o Chrome).")
+            (out_dir / "_render.html").unlink(missing_ok=True)
+            if not opts.markdown and md_path.exists():
+                md_path.unlink()
+                shutil.rmtree(out_dir / "images", ignore_errors=True)
 
             pages = 1
             if opts.depth > 0 and opts.markdown:
@@ -522,12 +573,13 @@ class CaptureService:
 
             (out_dir / "captura.json").write_text(json.dumps({
                 **soup_meta, "url": url, "final_url": final_url, "captured_at": datetime.now().isoformat(timespec="seconds"),
-                "rendered_with_browser": rendered, "pages": pages}, ensure_ascii=False, indent=2), encoding="utf-8")
+                "rendered_with_browser": rendered, "from_extension": source_html is not None, "chat": chat,
+                "messages": meta.get("messages"), "pages": pages}, ensure_ascii=False, indent=2), encoding="utf-8")
             files.append(out_dir / "captura.json")
 
-        if not any(f.suffix in {".md", ".html", ".png", ".pdf"} for f in files):
+        if not any(f.suffix in {".md", ".html", ".png", ".pdf", ".docx", ".epub"} for f in files):
             raise CaptureError("No se pudo generar ningun archivo. " + " ".join(warnings))
-        order = {".md": 0, ".html": 1, ".png": 2, ".pdf": 3}
+        order = {".md": 0, ".docx": 1, ".html": 2, ".pdf": 3, ".png": 4, ".epub": 5}
         files.sort(key=lambda f: order.get(f.suffix, 9))
         extra = [str(p) for p in sorted((out_dir / "paginas").glob("*.md"))] if (out_dir / "paginas").exists() else []
         self.jobs.update(job_id, status="done", stage=None, progress=100.0, title=soup_meta["title"],

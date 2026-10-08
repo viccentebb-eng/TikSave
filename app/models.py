@@ -15,6 +15,15 @@ class DownloadRequest(BaseModel):
     transcript: bool = False
     cover: bool = False
     notes: bool = False
+    start: float | None = Field(default=None, ge=0)
+    end: float | None = Field(default=None, gt=0)
+
+
+class TrimRequest(BaseModel):
+    path: str
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    precise: bool = True
 
 
 class BatchRequest(BaseModel):
@@ -36,6 +45,10 @@ class CaptureRequest(BaseModel):
     html: bool = False
     screenshot: bool = False
     pdf: bool = False
+    docx: bool = False
+    epub: bool = False
+    images: bool = True
+    html_source: str | None = Field(default=None, max_length=40_000_000)  # DOM enviado por la extension
     full_content: bool = False
     render: Literal["auto", "always", "never"] = "auto"
     depth: int = Field(default=0, ge=0, le=2)
