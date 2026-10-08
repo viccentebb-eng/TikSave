@@ -95,27 +95,15 @@ listen();
 ext.tabs.onUpdated.addListener((tabId, change) => { if (change.status === "loading" && change.url) clearMedia(tabId); });
 ext.tabs.onRemoved.addListener(clearMedia);
 
-// ---------- boton flotante: registro de scripts ----------
-async function hasAllSites() {
-  try { return await ext.permissions.contains(ALL_SITES); } catch { return false; }
-}
+// ---------- boton flotante ----------
+// El acceso a todos los sitios va en el manifiesto (host_permissions) y el boton (content_scripts): no hay permisos que pedir.
+async function hasAllSites() { return true; }
 async function registerFloating() {
-  if (!(await hasAllSites())) return false;
-  try {
-    const existing = await ext.scripting.getRegisteredContentScripts({ ids: ["tiksave-float"] });
-    if (!existing.length) {
-      await ext.scripting.registerContentScripts([{
-        id: "tiksave-float", js: ["content.js"], matches: ["<all_urls>"], allFrames: true,
-        runAt: "document_idle", persistAcrossSessions: true,
-      }]);
-    }
-  } catch { /* ya registrado */ }
   listen();
   return true;
 }
 ext.runtime.onInstalled.addListener(registerFloating);
 ext.runtime.onStartup.addListener(registerFloating);
-ext.permissions.onAdded?.addListener(registerFloating);
 
 // ---------- sesion (cookies) ----------
 // Con "Usar mi sesion" activo, las cookies del sitio viajan SOLO a TikSave en 127.0.0.1 para ese trabajo; el servidor

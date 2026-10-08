@@ -83,20 +83,6 @@ async function resolveUrl(url) {
 }
 // Las descargas pasan por el fondo: el adjunta tu sesion (cookies) y resuelve el enlace correcto.
 async function sendDownload(body) {
-  // Sitio sin extractor sin permiso de sitios: no hay forma de encontrar el video. Se pide el permiso aqui mismo
-  // (el clic cuenta como gesto del usuario) y se pide recargar, porque el video ya cargo sin que lo viéramos.
-  if (!siteFor(body.url) && body.url === currentUrl && currentTabId != null) {
-    let granted = false;
-    try { granted = await ext.permissions.contains({ origins: ["<all_urls>"] }); } catch { /* ignorar */ }
-    if (!granted) {
-      try { granted = await ext.permissions.request({ origins: ["<all_urls>"] }); } catch { /* ignorar */ }
-      if (!granted) { say("Para encontrar el video necesito el permiso de sitios. Pulsa «Activar en todos los sitios».", "error"); return; }
-      await ext.runtime.sendMessage({ type: "register" });
-      await initFloating(true);
-      say("Permiso activado. Recarga la página del video y vuelve a pulsar Descargar.", "ok");
-      return;
-    }
-  }
   try {
     body = { ...body, url: await resolveUrl(body.url) };
     const res = await ext.runtime.sendMessage({ type: "save", explicitUrl: body.url, mode: body.mode, title: body.title,
@@ -156,9 +142,8 @@ $("capture").addEventListener("click", async () => {
 $("open").addEventListener("click", () => ext.tabs.create({ url: API }));
 async function initFloating(isWeb) {
   if (!isWeb) return;
-  let granted = false;
-  try { granted = await ext.permissions.contains({ origins: ["<all_urls>"] }); } catch { /* ignorar */ }
-  $("perm").classList.toggle("hidden", granted);
+  const granted = true; // el acceso a los sitios viene en el manifiesto: nada que pedir
+  $("perm").classList.add("hidden");
   $("float-row").classList.toggle("hidden", !granted);
   const stored = await ext.storage.local.get({ floatEnabled: true, useCookies: true });
   $("float-on").checked = stored.floatEnabled !== false;
