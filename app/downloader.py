@@ -178,6 +178,8 @@ class Downloader:
             "js_runtimes": {"deno": {}, "node": {}},
             # En Windows el antivirus o el indexador suelen bloquear el .part al renombrarlo (WinError 32): se escribe directo.
             "nopart": os.name == "nt",
+            # Un intento anterior puede dejar el archivo a medias: se vuelve a bajar entero en vez de "reanudar" (HTTP 416).
+            "continuedl": False,
             "socket_timeout": 30,
             "http_headers": headers,
             "windowsfilenames": True,
@@ -398,6 +400,7 @@ class Downloader:
             **self._auth_options(job_id),
             **self._format_options(mode, caps["ffmpeg"]),
             "outtmpl": str(out_dir / template),
+            "overwrites": True,
             "progress_hooks": [progress_hook],
             "postprocessor_hooks": [pp_hook],
         }
