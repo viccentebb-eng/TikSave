@@ -158,7 +158,7 @@ def test_library_snippet_for_text_items(env):
     t.mkdir(parents=True)
     (t / "a - hola [3].md").write_text('---\ntitle: "x"\n---\n\n# hola\n\nEste es el **contenido** real del video.\n')
     item = c.get("/api/library").json()["items"][0]
-    assert item["snippet"].startswith("hola Este es el **contenido** real")
+    assert item["snippet"].startswith("hola Este es el contenido real")
 
 
 def test_friendly_error_does_not_blame_region_for_format_errors():
@@ -183,3 +183,13 @@ def test_chat_links_are_not_queued_as_downloads(env):
     c, _, _ = env
     r = c.post("/api/download", json={"url": "https://chatgpt.com/c/abc", "mode": "transcript"})
     assert r.status_code == 400 and "Capturar esta página" in r.json()["detail"]
+
+
+def test_library_snippet_strips_markdown_syntax(env):
+    c, _, dl = env
+    d = dl / "Sitios" / "x-1"
+    d.mkdir(parents=True)
+    (d / "Pagina.md").write_text('---\ntitle: "x"\n---\n\n[![](https://x.com/l.svg)\n\n Gemini](https://g.com/) Hola **mundo** ver https://a.b/c\n')
+    snip = c.get("/api/library").json()["items"][0]["snippet"]
+    assert "![" not in snip and "](" not in snip and "http" not in snip and "**" not in snip
+    assert "Gemini" in snip and "Hola mundo" in snip

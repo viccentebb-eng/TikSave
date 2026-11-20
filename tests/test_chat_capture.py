@@ -129,3 +129,16 @@ def test_chat_reading_view_html_and_pdf(service):
     html = by[".html"].read_text(encoding="utf-8")
     assert "<math" in html and "def" in re.sub(r"<[^>]+>", "", html) and "menu app" not in html
     assert by[".pdf"].read_bytes()[:4] == b"%PDF" and by[".png"].read_bytes()[:4] == b"\x89PNG"
+
+
+CLAUDE = """<html><head><title>Claude</title></head><body><nav>Claude terminó la respuesta</nav><main>
+<div data-testid="user-message"><p>¿Qué es x^2?</p></div>
+<div class="font-claude-response"><div class="font-claude-response-body"><p>Es el cuadrado de x.</p>
+<pre><code class="language-python">print(2**2)</code></pre></div></div></main></body></html>"""
+
+
+def test_claude_conversation_is_extracted_without_ui_noise():
+    md, meta = html_to_markdown(CLAUDE, "https://claude.ai/chat/1")
+    assert meta["chat"] == "Claude" and meta["messages"] == 2
+    assert "## Tú" in md and "## Claude" in md and "cuadrado de x" in md
+    assert "terminó la respuesta" not in md and "```python" in md

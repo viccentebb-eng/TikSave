@@ -153,6 +153,8 @@ class MediaConverter:
             out.unlink(missing_ok=True)
             err = (proc.stderr.read() or "").strip().splitlines()
             raise RuntimeError("FFmpeg no pudo convertir: " + (err[-1][:240] if err else f"codigo {code}"))
-        before = src.stat().st_size
+        def size(n: int) -> str:
+            return f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{max(1, round(n / 1e3))} KB"
+
         self.jobs.update(job_id, status="done", stage=None, progress=100.0, files=[str(out)], filename=str(out),
-                         warnings=[f"Tamaño: {before / 1e6:.1f} MB → {out.stat().st_size / 1e6:.1f} MB"])
+                         warnings=[f"Tamaño: {size(src.stat().st_size)} → {size(out.stat().st_size)}"])

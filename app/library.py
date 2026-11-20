@@ -90,6 +90,11 @@ def _snippet(path: Path, limit: int = 220) -> str | None:
     if text.startswith("---"):
         end = text.find("\n---", 3)
         text = text[end + 4:] if end != -1 else text
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)            # imagenes
+    for _ in range(2):                                              # enlaces (tambien anidados)
+        text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"https?://\S+", " ", text)                       # URLs sueltas
+    text = re.sub(r"[`*_]{1,3}", "", text)                          # negritas, codigo
     lines = [ln.strip(" #>*-") for ln in text.splitlines() if ln.strip() and not ln.strip().startswith(("![", "```"))]
     out = " ".join(lines)
     out = re.sub(r"\s+", " ", out).strip()

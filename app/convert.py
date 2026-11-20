@@ -113,6 +113,15 @@ def extract_chat(soup: BeautifulSoup) -> tuple[Tag | None, str | None, int]:
                 else:
                     turns.append(("Gemini", el.select_one("message-content .markdown, .markdown, message-content") or el))
     if not turns:
+        sel = '[data-testid="user-message"], .font-claude-response, .font-claude-message'
+        found = soup.select(sel)
+        ids = {id(el) for el in found}
+        found = [el for el in found if not any(id(p) in ids for p in el.parents)]  # sin anidados
+        if found:
+            platform = "Claude"
+            for el in found:
+                turns.append(("Tú" if el.get("data-testid") == "user-message" else "Claude", el))
+    if not turns:
         return None, None, 0
     box = _new_div(soup)
     for who, el in turns:

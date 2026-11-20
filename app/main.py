@@ -105,7 +105,9 @@ def create_app(home: Path | None = None) -> FastAPI:
         except ValueError as exc:
             raise bad(exc) from exc
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=friendly_error(exc)) from exc
+            low = str(exc).lower()
+            status = 422 if ("unsupported url" in low or "no video" in low) else 502
+            raise HTTPException(status_code=status, detail=friendly_error(exc)) from exc
 
     @api.post("/api/expand")
     def expand(payload: ExpandRequest) -> dict:

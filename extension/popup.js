@@ -125,7 +125,7 @@ async function grabPage() {
     return data;
   }
 
-  const CHAT_SEL = "[data-message-author-role], user-query, model-response";
+  const CHAT_SEL = "[data-message-author-role], user-query, model-response, [data-testid='user-message'], .font-claude-response, .font-claude-message";
   if (document.querySelector(CHAT_SEL)) {
     const scroller = [...document.querySelectorAll("main, div, section")]
       .filter((el) => el.scrollHeight > el.clientHeight + 80 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))
@@ -133,6 +133,7 @@ async function grabPage() {
     const seen = new Map();
     const collect = async () => {
       for (const node of document.querySelectorAll(CHAT_SEL)) {
+        if (node.parentElement?.closest(CHAT_SEL)) continue; // mensaje dentro de otro: ya se guarda con el de fuera
         const key = node.getAttribute("data-message-id") || node.innerText.slice(0, 160);
         if (seen.has(key)) continue;
         const clone = node.cloneNode(true);
