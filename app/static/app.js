@@ -480,9 +480,25 @@ function updateJobCard(card, job) {
   $(".js-left", card).textContent = job.status === "downloading" || job.status === "processing" || job.status === "starting"
     ? (job.stage || STATUS[job.status]) : STATUS[job.status];
   $(".js-right", card).textContent = ACTIVE.has(job.status) ? [job.speed, job.eta && `${job.eta}`, job.status === "downloading" && pct ? `${pct}%` : ""].filter(Boolean).join(" · ") : "";
-  const msgs = $(".job-msgs", card); msgs.replaceChildren();
-  if (job.error) msgs.append(h("div", { class: "job-err" }, job.error));
-  (job.warnings || []).forEach((w) => msgs.append(h("div", { class: "job-warn" }, w)));
+  // Mensajes: solo se rehacen si cambian, para no cerrar el detalle mientras la cola se actualiza.
+  const msgs = $(".job-msgs", card);
+  const msgKey = JSON.stringify([job.error, job.error_detail, job.warnings]);
+  if (card.dataset.msgKey !== msgKey) {
+    card.dataset.msgKey = msgKey;
+    msgs.replaceChildren();
+    if (job.error) {
+      msgs.append(h("div", { class: "job-err" }, job.error));
+      if (job.error_detail && job.error_detail !== job.error) {
+        const report = `TikSave ${health?.version || ""}\n${job.kind} · ${job.mode}\n${job.url}\n\n${job.error_detail}`;
+        msgs.append(h("details", { class: "job-detail" }, h("summary", {}, "Ver detalle técnico"),
+          h("pre", {}, job.error_detail),
+          h("button", { class: "btn small ghost", onclick: () => navigator.clipboard.writeText(report)
+            .then(() => toast("Detalle copiado: pégalo donde pidas ayuda.", "ok"), () => toast("No se pudo copiar.", "error")) },
+          icon("copy"), "Copiar detalle")));
+      }
+    }
+    (job.warnings || []).forEach((w) => msgs.append(h("div", { class: "job-warn" }, w)));
+  }
 
   const actions = $(".job-actions", card); actions.replaceChildren();
   const btn = (label, ic, fn, cls = "") => h("button", { class: `btn small ${cls}`, onclick: fn }, icon(ic), label);
@@ -884,6 +900,7 @@ function renderSystem() {
   const c = health?.capabilities || {};
   const rows = [
     [c.curl_cffi, `curl_cffi: ${c.curl_cffi ? "instalado" : "FALTA"}`, c.curl_cffi ? "Necesario para que TikTok no bloquee las descargas." : "TikTok bloqueará las descargas. Ejecuta install-windows.bat otra vez."],
+    [c.js_runtime, `Deno o Node (YouTube): ${c.js_runtime ? "instalado" : "no encontrado"}`, c.js_runtime ? "YouTube puede leer todos sus formatos." : "Sin él YouTube no entrega videos. Ejecuta install-windows.bat."],
     [c.ffmpeg, `FFmpeg: ${c.ffmpeg ? "instalado" : "no encontrado"}`, c.ffmpeg ? "MP3, subtítulos SRT y portadas JPG disponibles." : "Sin él no hay MP3 ni mezcla de audio y video."],
     [c.browser, `Navegador para capturas: ${c.browser ? "disponible" : "no encontrado"}`, c.browser ? "Capturas de pantalla, PDF y páginas con JavaScript." : "Instala Edge o Chrome."],
     [c.pandoc, `Exportar a Word/EPUB (pandoc): ${c.pandoc ? "disponible" : "no encontrado"}`, c.pandoc ? "Word con ecuaciones editables y EPUB." : "pip install pypandoc_binary"],
@@ -893,6 +910,16 @@ function renderSystem() {
   const ul = $("#sys"); ul.replaceChildren();
   rows.forEach(([ok, title, note]) => ul.append(h("li", {}, h("span", { class: `dot ${ok === true ? "" : ok === null ? "warn" : "bad"}` }), h("span", {}, h("b", {}, title), note ? ` — ${note}` : ""))));
   $("#ver").textContent = `v${health?.version || ""}`;
+  // Aviso en Descargar si falta algo que hace fallar descargas.
+  const missing = [
+    !c.curl_cffi && "curl_cffi (sin él TikTok bloquea las descargas)",
+    !c.ffmpeg && "FFmpeg (MP3, unir audio y video, recortar y convertir)",
+    c.js_runtime === false && "Deno o Node (sin él YouTube no entrega videos)",
+  ].filter(Boolean);
+  const deps = $("#deps");
+  deps.classList.toggle("hidden", !missing.length || !health);
+  deps.replaceChildren(h("b", {}, "Faltan componentes:"), h("ul", {}, ...missing.map((m) => h("li", {}, m))),
+    h("div", { class: "fine" }, "Para arreglarlo: cierra TikSave y ejecuta install-windows.bat. Luego ábrelo de nuevo."));
   $("#cap-nobrowser").classList.toggle("hidden", !!c.browser);
   ["#c-docx", "#c-epub"].forEach((id) => { $(id).disabled = !c.pandoc; if (!c.pandoc) $(id).checked = false; });
   ["#c-shot", "#c-pdf"].forEach((id) => { $(id).disabled = !c.browser; if (!c.browser) $(id).checked = false; });

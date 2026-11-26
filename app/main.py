@@ -302,12 +302,17 @@ def _port_free() -> bool:
 
 
 def main() -> None:
+    import sys
+
+    open_browser = "--no-browser" not in sys.argv[1:]
     url = f"http://127.0.0.1:{PORT}"
     if not _port_free():
-        print(f"TikSave ya esta corriendo (o el puerto {PORT} esta ocupado). Abriendo {url} ...")
-        webbrowser.open(url)
+        print(f"TikSave ya está corriendo (o el puerto {PORT} está ocupado): {url}")
+        if open_browser:
+            webbrowser.open(url)
         return
-    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    if open_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
 
 

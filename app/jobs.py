@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
+from logging.handlers import RotatingFileHandler
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -32,6 +34,7 @@ class Job:
     filename: str | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    error_detail: str | None = None  # mensaje tecnico completo, para diagnosticar
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
 
@@ -40,11 +43,29 @@ class JobCancelled(Exception):
     pass
 
 
+def _make_log(folder: Path) -> logging.Logger:
+    """Registro de errores en <config>/logs/tiksave.log (rota a 1 MB, guarda 3 copias)."""
+    logger = logging.getLogger(f"tiksave.jobs.{folder}")
+    logger.propagate = False
+    if not logger.handlers:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(folder / "tiksave.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+            logger.addHandler(handler)
+        except OSError:
+            logger.addHandler(logging.NullHandler())
+        logger.setLevel(logging.INFO)
+    return logger
+
+
 class JobStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path
+        self._log = logging.getLogger("tiksave.jobs.memoria")
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
+            self._log = _make_log(path.parent / "logs")
         self._jobs: dict[str, Job] = {}
         self._cancel: set[str] = set()
         self._lock = threading.RLock()
@@ -99,6 +120,10 @@ class JobStore:
                 return
             for key, value in changes.items():
                 setattr(job, key, value)
+            if changes.get("status") == "error":
+                job.error_detail = changes.get("error_detail") or job.error_detail or job.error
+                self._log.error("trabajo=%s tipo=%s modo=%s url=%s error=%s detalle=%s", job.id, job.kind, job.mode,
+                          job.url, job.error, job.error_detail)
             if job.status in TERMINAL:
                 job.finished_at = job.finished_at or time.time()
                 self._persist()

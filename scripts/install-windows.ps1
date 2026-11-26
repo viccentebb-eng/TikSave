@@ -107,6 +107,14 @@ if (-not (Get-Command deno -ErrorAction SilentlyContinue) -and -not (Get-Command
     }
 }
 
+# Accesos directos en el Escritorio y en el menu Inicio (abren TikSave en su propia ventana).
+try {
+    & (Join-Path $Root "scripts\create-shortcuts.ps1")
+} catch {
+    Write-Host "No se pudieron crear los accesos directos: $_" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "Instalacion terminada." -ForegroundColor Green
-Write-Host "Ejecuta: .\scripts\run-windows.ps1" -ForegroundColor Green
+Write-Host "Abre TikSave con el acceso directo del Escritorio (o con TikSave.bat)." -ForegroundColor Green
+Write-Host "Para usar TikSave desde Claude Desktop ejecuta: install-mcp.bat" -ForegroundColor Cyan

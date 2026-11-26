@@ -131,5 +131,5 @@ def open_in_os(path: Path, reveal: bool = False) -> None:
     else:
         opener = shutil.which("xdg-open")
         if not opener:
-            raise RuntimeError("No se encontro xdg-open para abrir la carpeta.")
+            raise RuntimeError("No se encontró xdg-open para abrir la carpeta.")
         subprocess.Popen([opener, str(path.parent if path.is_file() else path)])

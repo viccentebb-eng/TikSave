@@ -366,7 +366,7 @@ def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path |
             except PlaywrightError as exc:
                 last_error = exc
         if browser is None:
-            raise CaptureError("No se encontro un navegador (Edge/Chrome). Instala Chrome o ejecuta: "
+            raise CaptureError("No se encontró un navegador (Edge/Chrome). Instala Chrome o ejecuta: "
                                f"python -m playwright install chromium. Detalle: {str(last_error)[:120]}")
         try:
             context = browser.new_context(viewport={"width": 1366, "height": 900}, user_agent=USER_AGENT,
@@ -386,11 +386,11 @@ def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path |
             try:
                 page.goto(html_file.as_uri() if html_file else url, wait_until="domcontentloaded", timeout=30000)
             except PlaywrightError as exc:
-                raise CaptureError(f"No se pudo abrir la pagina: {str(exc).splitlines()[0][:160]}") from exc
+                raise CaptureError(f"No se pudo abrir la página: {str(exc).splitlines()[0][:160]}") from exc
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except PlaywrightError:
-                warnings.append("La pagina sigue cargando recursos; se capturo lo disponible.")
+                warnings.append("La página sigue cargando recursos; se capturo lo disponible.")
             try:
                 page.evaluate(_SCROLL_JS)
                 page.wait_for_load_state("networkidle", timeout=3000)
@@ -402,7 +402,7 @@ def render_page(url: str, shot: Path | None, pdf: Path | None, html_file: Path |
                     page.screenshot(path=str(shot), full_page=True)
                 except PlaywrightError:
                     page.screenshot(path=str(shot), full_page=False)
-                    warnings.append("La pagina es muy larga: la captura solo incluye la parte visible.")
+                    warnings.append("La página es muy larga: la captura solo incluye la parte visible.")
             if pdf:
                 page.pdf(path=str(pdf), format="A4", print_background=True)
             return page.content(), final_url, warnings
@@ -426,7 +426,7 @@ class CaptureService:
         if source_html is not None:  # DOM ya renderizado por la extension: no se descarga nada de la pagina
             parsed = urlparse((url or "").strip())
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise ValueError("Direccion de la pagina no valida.")
+                raise ValueError("Dirección de la página no valida.")
             url = url.strip()
             options.from_extension = True
         else:
@@ -452,7 +452,7 @@ class CaptureService:
         options = CaptureOptions(**old["options"])
         if options.from_extension:
             if job_id not in self._sources:
-                raise ValueError("Esta captura vino de la extension: vuelve a capturar la pagina desde ella.")
+                raise ValueError("Esta captura vino de la extensión: vuelve a capturar la página desde ella.")
             return self.enqueue(old["url"], options, self._sources[job_id])
         return self.enqueue(old["url"], options)
 
@@ -465,12 +465,13 @@ class CaptureService:
         except CaptureError as exc:
             self.jobs.update(job_id, status="error", stage=None, error=str(exc))
         except httpx.HTTPError as exc:
-            self.jobs.update(job_id, status="error", stage=None,
-                             error=f"No se pudo conectar con el sitio: {type(exc).__name__}. Revisa la direccion y tu internet.")
+            self.jobs.update(job_id, status="error", stage=None, error_detail=repr(exc)[:4000],
+                             error=f"No se pudo conectar con el sitio: {type(exc).__name__}. Revisa la dirección y tu internet.")
         except ValueError as exc:
             self.jobs.update(job_id, status="error", stage=None, error=str(exc))
         except Exception as exc:  # noqa: BLE001
-            self.jobs.update(job_id, status="error", stage=None, error=f"Error inesperado: {str(exc)[:300]}")
+            self.jobs.update(job_id, status="error", stage=None, error=f"Error inesperado: {str(exc)[:300]}",
+                             error_detail=repr(exc)[:4000])
 
     def _capture(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
@@ -493,8 +494,8 @@ class CaptureService:
         warnings: list[str] = []
         caps_browser = browser_available()
         need_browser_outputs = opts.screenshot or opts.pdf
-        login_hint = ("Si la pagina exige iniciar sesion (ChatGPT, Gemini, redes sociales), usa la extension de TikSave: "
-                      "captura lo que ya ves en tu navegador, con tu sesion.")
+        login_hint = ("Si la página exige iniciar sesión (ChatGPT, Gemini, redes sociales), usa la extensión de TikSave: "
+                      "captura lo que ya ves en tu navegador, con tu sesión.")
 
         jar = None
         try:
@@ -502,7 +503,7 @@ class CaptureService:
         except (RuntimeError, ValueError) as exc:
             warnings.append(str(exc))
         page_cookies = cookies_for_url(jar, url) if jar is not None else []
-        step("Abriendo la pagina", 5)
+        step("Abriendo la página", 5)
         with _client(jar) as client:
             html = final_url = None
             rendered = source_html is not None
@@ -518,12 +519,12 @@ class CaptureService:
                     try:
                         content, final_url, ctype, charset = safe_get(client, url)
                         if "html" not in ctype.lower() and "xml" not in ctype.lower() and content[:1] != b"<":
-                            raise CaptureError(f"El enlace no es una pagina web ({ctype or 'tipo desconocido'}).")
+                            raise CaptureError(f"El enlace no es una página web ({ctype or 'tipo desconocido'}).")
                         static_html = html = decode_html(content, charset)
                     except HttpStatusError as exc:
                         if exc.status in {401, 403, 429, 503} and caps_browser and opts.render != "never":
                             blocked = True
-                            warnings.append("El sitio bloqueo la descarga directa; se abrio con el navegador.")
+                            warnings.append("El sitio bloqueó la descarga directa; se abrió con el navegador.")
                         else:
                             raise CaptureError(f"{exc} {login_hint}") from exc
                 check()
@@ -540,7 +541,7 @@ class CaptureService:
                         except CaptureError:
                             if need_browser_outputs or static_html is None:
                                 raise
-                            warnings.append("No se pudo renderizar JavaScript; se uso el HTML estatico.")
+                            warnings.append("No se pudo renderizar JavaScript; se uso el HTML estático.")
                     elif need_browser_outputs:
                         warnings.append("Captura de pantalla/PDF omitidos: no hay navegador. Instala Edge/Chrome o ejecuta "
                                         "'python -m playwright install chromium'.")
@@ -569,24 +570,24 @@ class CaptureService:
             known_chat = next((name for domain, name in CHAT_HOSTS.items() if host == domain or host.endswith("." + domain)), None)
             if known_chat and not chat:
                 if source_html is None:
-                    raise CaptureError(f"{known_chat} solo muestra la conversacion con tu sesion iniciada, y el servidor no la tiene "
-                                       "(lo que se veria es la pagina de inicio). Abre la conversacion en tu navegador y usa la "
-                                       "extension de TikSave: Capturar esta pagina.")
-                warnings.append(f"No encontre mensajes de {known_chat} en la pagina: puede que haya cambiado su formato.")
+                    raise CaptureError(f"{known_chat} solo muestra la conversación con tu sesión iniciada, y el servidor no la tiene "
+                                       "(lo que se veria es la página de inicio). Abre la conversación en tu navegador y usa la "
+                                       "extensión de TikSave: Capturar esta página.")
+                warnings.append(f"No encontre mensajes de {known_chat} en la página: puede que haya cambiado su formato.")
             elif chat:
-                warnings.append(f"Conversacion de {chat} detectada: {meta['messages']} mensajes.")
+                warnings.append(f"Conversación de {chat} detectada: {meta['messages']} mensajes.")
             elif source_html is None and len(body) < 800 and re.search(
                     r"(iniciar sesi[oó]n|inicia sesi[oó]n|acceder|sign in|log ?in)", body, re.I):
-                warnings.append("Parece una pagina de inicio de sesion: el contenido real puede requerir tu cuenta. " + login_hint)
+                warnings.append("Parece una página de inicio de sesión: el contenido real puede requerir tu cuenta. " + login_hint)
             elif len(body) < 80:
-                warnings.append("Se extrajo muy poco texto; prueba 'Pagina completa' o 'Renderizar JavaScript'.")
+                warnings.append("Se extrajo muy poco texto; prueba 'Página completa' o 'Renderizar JavaScript'.")
 
             reading = bool(chat)  # los chats se imprimen/guardan desde una vista de lectura limpia, no desde la app
             need_md = opts.markdown or opts.docx or opts.epub or (reading and (opts.html or need_browser_outputs))
             md_path = final_path(".md")
             if need_md:
                 if opts.images:
-                    step("Guardando imagenes", 55)
+                    step("Guardando imágenes", 55)
 
                     def fetch(src: str) -> tuple[bytes, str]:
                         check()
@@ -595,7 +596,7 @@ class CaptureService:
 
                     body, saved, failed = localize_images(body, out_dir, fetch)
                     if failed:
-                        warnings.append(f"{failed} imagen(es) no se pudieron guardar (si requieren sesion, usa la extension).")
+                        warnings.append(f"{failed} imagen(es) no se pudieron guardar (si requieren sesión, usa la extensión).")
                 else:
                     body = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)", "", body)
                 md_path.write_text(front_matter(meta, final_url) + "\n\n" + body + "\n", encoding="utf-8")
@@ -669,7 +670,7 @@ class CaptureService:
             files.append(out_dir / "captura.json")
 
         if not any(f.suffix in {".md", ".html", ".png", ".pdf", ".docx", ".epub"} for f in files):
-            raise CaptureError("No se pudo generar ningun archivo. " + " ".join(warnings))
+            raise CaptureError("No se pudo generar ningún archivo. " + " ".join(warnings))
         order = {".md": 0, ".docx": 1, ".html": 2, ".pdf": 3, ".png": 4, ".epub": 5}
         files.sort(key=lambda f: order.get(f.suffix, 9))
         extra = [str(p) for p in sorted((out_dir / "paginas").glob("*.md"))] if (out_dir / "paginas").exists() else []
@@ -736,7 +737,7 @@ class CaptureService:
                 frontier.extend((u, depth + 1) for u in links(html, final))
             time.sleep(0.25)
         if index:
-            (out_dir / "indice.md").write_text("# Paginas capturadas\n\n" + "\n".join(index) + "\n", encoding="utf-8")
+            (out_dir / "indice.md").write_text("# Páginas capturadas\n\n" + "\n".join(index) + "\n", encoding="utf-8")
         elif opts.depth:
             warnings.append("No se encontraron enlaces del mismo sitio para seguir (o robots.txt lo impide).")
         return saved

@@ -95,7 +95,7 @@ def test_extension_dom_to_markdown_with_local_images(service):
     text = md_file.read_text(encoding="utf-8")
     assert "![grafica](images/img-01.png)" in text and "data:image" not in text
     assert (md_file.parent / "images" / "img-01.png").exists()
-    assert any("Conversacion de ChatGPT" in w for w in st["warnings"])
+    assert any("Conversación de ChatGPT" in w for w in st["warnings"])
 
 
 def test_server_side_login_chat_gives_clear_error(service):
@@ -103,7 +103,7 @@ def test_server_side_login_chat_gives_clear_error(service):
     # el servidor no puede ver chats con sesion: ni siquiera intenta devolver una pagina vacia como "Listo"
     st = run(svc, jobs, "https://gemini.google.com/app/5394db913d8cc441", None, markdown=True, render="never")
     assert st["status"] == "error"
-    assert "extension" in st["error"].lower() or "403" in st["error"] or "conectar" in st["error"].lower()
+    assert "extensión" in st["error"].lower() or "403" in st["error"] or "conectar" in st["error"].lower()
 
 
 @pytest.mark.skipif(not has_pandoc(), reason="sin pandoc")

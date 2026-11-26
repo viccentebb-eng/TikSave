@@ -73,7 +73,7 @@ def test_extension_cookies_unlock_download_and_are_not_kept(tmp_path, monkeypatc
     base, seen = secret_site
     c = client(tmp_path, monkeypatch)
     denied = wait(c, c.post("/api/download", json={"url": base + "/secret.mp4", "mode": "video"}).json()["id"])
-    assert denied["status"] == "error" and "sesion" in denied["error"].lower()
+    assert denied["status"] == "error" and "sesión" in denied["error"].lower()
     job = c.post("/api/download", json={"url": base + "/secret.mp4", "mode": "video",
                                         "cookies": [{"name": "session", "value": "abc123", "domain": "127.0.0.1"}]}).json()
     assert job["options"]["with_cookies"] is True
@@ -179,4 +179,4 @@ def test_cookies_default_to_auto_and_stay_silent_without_a_browser(tmp_path, mon
     st = wait(c, c.post("/api/download", json={"url": base + "/secret.mp4", "mode": "video"}).json()["id"])
     assert st["status"] == "error"
     assert "cookies" not in st["error"].lower()  # no se muestra un error de cookies: la opcion automatica es silenciosa
-    assert "sesion" in st["error"].lower()
+    assert "sesión" in st["error"].lower()

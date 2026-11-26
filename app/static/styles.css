@@ -188,6 +188,12 @@ body.selecting .lib-card.sel .check { background:var(--accent2); border-color:va
 .preview-page img { width:120px; height:auto; min-height:68px; max-height:120px; object-fit:cover; }
 .lib-thumb img.thumb-media { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 
+/* detalle tecnico de errores */
+.job-detail { margin-top:6px; font-size:12.5px; }
+.job-detail summary { cursor:pointer; color:var(--muted); font-weight:600; }
+.job-detail pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:160px; overflow:auto; background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:8px; margin:6px 0; font-size:11.5px; }
+#deps ul { margin:6px 0; padding-left:20px; }
+
 /* explorar perfil */
 .ex-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
 .ex-tools { display:flex; gap:6px; }

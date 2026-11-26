@@ -18,9 +18,17 @@ Todo corre en `127.0.0.1`. Los archivos se guardan en `Descargas/TikSave` (desca
 ```powershell
 git clone https://github.com/viccentebb-eng/TikSave.git
 cd TikSave
-.\install-windows.bat    # una sola vez
-.\run-windows.bat        # abre http://127.0.0.1:8173
+.\install-windows.bat    # una sola vez: instala todo y crea los accesos directos
 ```
+
+Abre **TikSave** desde el acceso directo del Escritorio o del menú Inicio (o con `TikSave.bat`): se abre en su propia
+ventana, sin navegador y sin consola. Al cerrar la ventana se cierra TikSave. Si tu Windows no tiene el componente de
+ventana (Edge WebView2, viene con Windows 10/11), TikSave abre el navegador como antes.
+
+`run-windows.bat` sigue disponible: arranca TikSave con la consola visible, útil para ver errores.
+
+Si una descarga falla, en la cola pulsa **Ver detalle técnico → Copiar detalle**: es el mensaje completo para pedir
+ayuda. Los errores también quedan en `%USERPROFILE%\.tiksave\logs\tiksave.log`.
 
 La instalación incluye `curl_cffi`, **imprescindible para TikTok** (sin él TikTok bloquea al extractor con
 "Unexpected response from webpage request"). Si algún día deja de funcionar, abre **Ajustes → Actualizar yt-dlp**.
@@ -32,6 +40,19 @@ Requisitos opcionales:
 | MP3, subtítulos SRT, portadas JPG | FFmpeg (el instalador intenta ponerlo con `winget`) |
 | Captura de pantalla, PDF, páginas hechas con JavaScript | Microsoft Edge o Google Chrome (ya instalados en Windows) |
 | Transcribir videos **sin subtítulos** | `pip install faster-whisper` (modelo local, sin nube; `TIKSAVE_WHISPER_MODEL=small` para más precisión) |
+
+## Usar TikSave desde Claude (MCP)
+
+TikSave incluye un servidor MCP para que Claude descargue, capture y lea tu Biblioteca por ti:
+
+- **Claude Desktop:** ejecuta `install-mcp.bat` y reinicia Claude Desktop (ciérralo también desde la bandeja).
+  Agrega `tiksave` a `%APPDATA%\Claude\claude_desktop_config.json` y guarda una copia del archivo anterior.
+- **Claude Code:** `claude mcp add tiksave -e PYTHONPATH=<carpeta de TikSave> -- <carpeta>\.venv\Scripts\python.exe -m app.mcp_server`
+
+Herramientas: `tiksave_download`, `tiksave_wait`, `tiksave_explore`, `tiksave_capture`, `tiksave_library`,
+`tiksave_read_text` (lee fichas, transcripciones y capturas), `tiksave_convert`, `tiksave_trim`, `tiksave_jobs`,
+`tiksave_status`. Si TikSave no está abierto, el servidor MCP lo arranca en segundo plano. Ejemplo: *"Baja este TikTok
+con su transcripción y resúmemelo"*.
 
 ## Extensión (Firefox o Chrome)
 

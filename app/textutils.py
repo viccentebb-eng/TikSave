@@ -44,7 +44,7 @@ def _yaml(value: str) -> str:
 
 def build_notes(info: dict, site: str, transcript: str | None, transcript_source: str | None = None) -> str:
     desc = (info.get("description") or info.get("title") or "").strip()
-    title = (info.get("title") or desc or "Sin titulo").strip().splitlines()[0][:140]
+    title = (info.get("title") or desc or "Sin título").strip().splitlines()[0][:140]
     uploader = info.get("uploader") or info.get("channel") or info.get("creator")
     tags = sorted({t.lstrip("#") for t in re.findall(r"#[\w\u00C0-\u024F]+", desc)})
     fm = [
@@ -71,12 +71,12 @@ def build_notes(info: dict, site: str, transcript: str | None, transcript_source
 
     body = [f"# {title}", ""]
     if desc:
-        body += ["## Descripcion", "", desc, ""]
-    body += ["## Transcripcion", ""]
+        body += ["## Descripción", "", desc, ""]
+    body += ["## Transcripción", ""]
     if transcript:
         if transcript_source:
             body += [f"_Fuente: {transcript_source}_", ""]
         body += [transcript, ""]
     else:
-        body += ["_No hay subtitulos ni transcripcion disponibles para este contenido._", ""]
+        body += ["_No hay subtítulos ni transcripción disponibles para este contenido._", ""]
     return "\n".join(fm + [""] + body)

@@ -73,7 +73,7 @@ def build_command(src: Path, out: Path, action: str, quality: str, height: int |
     elif action == "opus":
         cmd += ["-vn", "-c:a", "libopus", "-b:a", q["opus"]]
     else:
-        raise ValueError("Accion no valida.")
+        raise ValueError("Acción no valida.")
     return cmd + [str(out)]
 
 
@@ -83,20 +83,20 @@ class MediaConverter:
 
     def enqueue(self, rel_path: str, action: str, quality: str = "media", height: int | None = None) -> dict:
         if not shutil.which("ffmpeg"):
-            raise ValueError("Falta FFmpeg para convertir. Instalalo y reinicia TikSave.")
+            raise ValueError("Falta FFmpeg para convertir. Instálalo y reinicia TikSave.")
         if action not in ACTIONS:
-            raise ValueError("Accion no valida.")
+            raise ValueError("Acción no valida.")
         if quality not in QUALITY:
             raise ValueError("Calidad no valida.")
         if height not in HEIGHTS:
-            raise ValueError("Resolucion no valida.")
+            raise ValueError("Resolución no valida.")
         src = resolve_inside(self.settings.download_dir, rel_path)
         kind = EXT_KIND.get(src.suffix.lower())
         need, _, label = ACTIONS[action]
         if not src.is_file() or kind not in {"video", "audio"}:
             raise ValueError("Solo se pueden convertir archivos de video o audio.")
         if need == "video" and kind != "video":
-            raise ValueError("Esta accion necesita un video.")
+            raise ValueError("Esta acción necesita un video.")
         job = self.jobs.create("convert", str(src), action,
                                {"path": rel_path, "action": action, "quality": quality, "height": height})
         self.jobs.update(job.id, title=src.stem[:180])
@@ -152,7 +152,7 @@ class MediaConverter:
         if code != 0 or not out.exists():
             out.unlink(missing_ok=True)
             err = (proc.stderr.read() or "").strip().splitlines()
-            raise RuntimeError("FFmpeg no pudo convertir: " + (err[-1][:240] if err else f"codigo {code}"))
+            raise RuntimeError("FFmpeg no pudo convertir: " + (err[-1][:240] if err else f"código {code}"))
         def size(n: int) -> str:
             return f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{max(1, round(n / 1e3))} KB"
 

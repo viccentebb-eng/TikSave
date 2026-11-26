@@ -53,35 +53,35 @@ def friendly_error(value: Exception | str) -> str:
         if not has_curl_cffi():
             return ("TikTok bloquea al extractor porque falta 'curl_cffi'. Ejecuta de nuevo "
                     "install-windows.bat (o: pip install -U \"yt-dlp[default,curl-cffi]\") y reinicia TikSave.")
-        return ("TikTok rechazo la peticion. Pulsa Ajustes > Actualizar yt-dlp y reintenta; "
-                "si persiste, puede ser una restriccion temporal de tu conexion.")
+        return ("TikTok rechazó la petición. Pulsa Ajustes > Actualizar yt-dlp y reintenta; "
+                "si persiste, puede ser una restriccion temporal de tu conexión.")
     if "429" in low or "too many requests" in low:
-        return ("El sitio limito las peticiones por un momento (demasiadas en poco tiempo). Espera unos minutos y vuelve "
+        return ("El sitio limitó las peticiones por un momento (demasiadas en poco tiempo). Espera unos minutos y vuelve "
                 "a intentar.")
     if "cookie" in low and any(m in low for m in ("could not", "failed", "decrypt", "database", "locked", "no pude leer")):
         return ("No pude leer las cookies de tu navegador (cierra el navegador o prueba con Firefox; en Chrome/Edge el "
-                "cifrado de Windows puede impedirlo). Tambien puedes descargar desde la extension, que envia tu sesion.")
+                "cifrado de Windows puede impedirlo). También puedes descargar desde la extensión, que envia tu sesión.")
     if any(m in low for m in ("private", "log in", "login", "sign in", "cookies", "members-only", "authenticat",
                               "http error 403", "forbidden", "http error 401")):
-        return ("Este contenido exige iniciar sesion. Descargalo desde la extension de TikSave (botón flotante o popup), "
-                "que usa tu sesion del navegador.")
+        return ("Este contenido exige iniciar sesión. Descárgalo desde la extensión de TikSave (botón flotante o popup), "
+                "que usa tu sesión del navegador.")
     if "requested format is not available" in low or "only images are available" in low or "n challenge" in low \
             or "signature solving failed" in low or "js runtime" in low or "javascript" in low:
-        return ("YouTube no entrego formatos de video para este enlace. Actualiza yt-dlp (Ajustes > Actualizar yt-dlp). "
+        return ("YouTube no entregó formatos de video para este enlace. Actualiza yt-dlp (Ajustes > Actualizar yt-dlp). "
                 "Si sigue igual, instala Node.js o Deno: yt-dlp lo necesita para leer YouTube. Detalle: " + text[:200])
     if "not available in your country" in low or "blocked in your country" in low or "geo" in low and "restrict" in low:
-        return "El contenido esta bloqueado en tu region."
+        return "El contenido está bloqueado en tu región."
     if any(m in low for m in ("removed", "unavailable", "404", "no longer", "deleted", "video is not available")):
-        return ("El video no esta disponible (borrado, privado o restringido). Detalle: " + text[:200])
+        return ("El video no está disponible (borrado, privado o restringido). Detalle: " + text[:200])
     if "ffmpeg" in low or "ffprobe" in low:
-        return "Falta FFmpeg (necesario para MP3 y subtitulos SRT). Instala FFmpeg y reinicia TikSave."
+        return "Falta FFmpeg (necesario para MP3 y subtítulos SRT). Instala FFmpeg y reinicia TikSave."
     if "unsupported url" in low and "/photo/" not in low:
         return ("TikSave no sabe extraer videos de esa página. Si la reproduces en el navegador, usa uno de los "
                 "videos detectados en el popup de la extensión (botones MP4/MP3).")
     if "unsupported url" in low or "no video formats" in low or "/photo/" in low:
-        return "No se encontro un video en ese enlace (las publicaciones de solo fotos no estan soportadas)."
+        return "No se encontró un video en ese enlace (las publicaciones de solo fotos no estan soportadas)."
     if any(m in low for m in ("timed out", "timeout", "connection", "getaddrinfo", "name resolution")):
-        return "Error de red al conectar. Revisa tu conexion a internet y reintenta."
+        return "Error de red al conectar. Revisa tu conexión a internet y reintenta."
     return text[:600]
 
 
@@ -156,6 +156,7 @@ class Downloader:
     def capabilities() -> dict[str, Any]:
         return {
             "ffmpeg": shutil.which("ffmpeg") is not None,
+            "js_runtime": (shutil.which("deno") or shutil.which("node")) is not None,  # YouTube lo necesita
             "curl_cffi": has_curl_cffi(),
             "whisper": has_whisper(),
             "yt_dlp": yt_dlp.version.__version__,
@@ -264,7 +265,7 @@ class Downloader:
                 cookies: list[dict] | None = None, subs: bool = False) -> dict[str, Any]:
         url, site = self._check_url(url)
         if mode not in MODES:
-            raise ValueError("Modo de descarga invalido.")
+            raise ValueError("Modo de descarga inválido.")
         host = (urlparse(url).hostname or "").lower()
         if any(host == h or host.endswith("." + h) for h in CHAT_HOSTS):
             raise ValueError("Esto es una conversación de ChatGPT/Gemini/Claude: no se descarga desde aquí. Abre la "
@@ -316,7 +317,7 @@ class Downloader:
             self.jobs.update(job_id, status="cancelled", stage=None, speed=None, eta=None)
         except Exception as exc:  # noqa: BLE001 - se reporta al usuario
             self.jobs.update(job_id, status="error", stage=None, speed=None, eta=None,
-                             error=friendly_error(exc))
+                             error=friendly_error(exc), error_detail=clean_error(exc)[:4000])
         finally:
             self._forget_cookies(job_id)
 
@@ -444,14 +445,14 @@ class Downloader:
 
         transcript_text, transcript_source = None, None
         if want_transcript or want_notes:
-            self.jobs.update(job_id, status="processing", stage="Preparando transcripcion", progress=99.0)
+            self.jobs.update(job_id, status="processing", stage="Preparando transcripción", progress=99.0)
             transcript_text, transcript_source = self._collect_transcript(
                 stem_path, sub_langs, media_path if has_media else None, url, out_dir, job_id)
             if want_transcript and transcript_text:
                 stem_path.with_name(stem_path.name + ".txt").write_text(transcript_text, encoding="utf-8")
             elif want_transcript:
                 self.jobs.update(job_id, warnings=[*(self.jobs.get(job_id) or {}).get("warnings", []),
-                                                   "Este contenido no tiene subtitulos"
+                                                   "Este contenido no tiene subtítulos"
                                                    + ("" if has_whisper() else
                                                       " (instala faster-whisper para transcribir el audio)") + "."])
         if want_notes:
@@ -483,9 +484,9 @@ class Downloader:
             text = subtitles_to_text(sub.read_text(encoding="utf-8", errors="ignore"))
             if text:
                 lang = sub.name[len(prefix):].rsplit(".", 1)[0]
-                return text, f"subtitulos de la plataforma ({lang})"
+                return text, f"subtítulos de la plataforma ({lang})"
         if has_whisper():
-            return self._whisper(media, url, out_dir, job_id), "transcripcion automatica local (Whisper)"
+            return self._whisper(media, url, out_dir, job_id), "transcripción automática local (Whisper)"
         return None, None
 
     def _whisper(self, media: Path | None, url: str, out_dir: Path, job_id: str) -> str | None:

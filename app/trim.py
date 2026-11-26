@@ -31,7 +31,7 @@ class Trimmer:
 
     def enqueue(self, rel_path: str, start: float, end: float, precise: bool = True) -> dict:
         if not shutil.which("ffmpeg"):
-            raise ValueError("Falta FFmpeg para recortar. Instalalo y reinicia TikSave.")
+            raise ValueError("Falta FFmpeg para recortar. Instálalo y reinicia TikSave.")
         source = resolve_inside(self.settings.download_dir, rel_path)
         if not source.is_file() or EXT_KIND.get(source.suffix.lower()) not in {"video", "audio"}:
             raise ValueError("Solo se pueden recortar archivos de video o audio.")

@@ -58,11 +58,11 @@ class Recorder:
         try:
             raw = base64.b64decode(data, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise ValueError("Trozo de grabacion no valido.") from exc
+            raise ValueError("Trozo de grabación no válido.") from exc
         if seq != state["next_seq"]:
             raise ValueError(f"Trozo fuera de orden (esperaba {state['next_seq']}).")
         if state["size"] + len(raw) > MAX_BYTES:
-            self.abort(rec_id, "La grabacion supera el limite de 6 GB.")
+            self.abort(rec_id, "La grabación supera el límite de 6 GB.")
             return {"ok": False, "cancelled": True}
         with state["path"].open("ab") as fh:
             fh.write(raw)
@@ -85,11 +85,11 @@ class Recorder:
             state = self._state.get(rec_id)
         job = self.jobs.get(rec_id)
         if not job or not state:
-            raise ValueError("Grabacion no encontrada o cancelada.")
+            raise ValueError("Grabación no encontrada o cancelada.")
         if state["size"] < 1024:
-            self.abort(rec_id, "La grabacion quedo vacia (¿el video estaba pausado o tiene proteccion DRM?).")
-            raise ValueError("La grabacion quedo vacia.")
-        self.jobs.update(rec_id, status="processing", stage="Procesando grabacion", progress=60.0)
+            self.abort(rec_id, "La grabación quedo vacía (¿el video estaba pausado o tiene protección DRM?).")
+            raise ValueError("La grabación quedo vacía.")
+        self.jobs.update(rec_id, status="processing", stage="Procesando grabación", progress=60.0)
         self.pool.submit(self._finalize, rec_id, to_mp4)
         return self.jobs.get(rec_id) or {}
 
@@ -121,4 +121,4 @@ class Recorder:
                 shutil.move(str(webm), out)
             self.jobs.update(rec_id, status="done", stage=None, progress=100.0, files=[str(out)], filename=str(out))
         except Exception as exc:  # noqa: BLE001
-            self.jobs.update(rec_id, status="error", stage=None, error=f"No se pudo guardar la grabacion: {str(exc)[:200]}")
+            self.jobs.update(rec_id, status="error", stage=None, error=f"No se pudo guardar la grabación: {str(exc)[:200]}")

@@ -38,4 +38,4 @@ def test_notes_with_and_without_transcript():
     assert md.startswith("---") and 'title: "Un \\"titulo\\""' in md
     assert "published: 2024-01-02" in md and "duration: 1:15" in md and "tags: [Claude, IA]" in md
     assert "texto largo" in md
-    assert "No hay subtitulos" in build_notes(info, "TikTok", None)
+    assert "No hay subtítulos" in build_notes(info, "TikTok", None)

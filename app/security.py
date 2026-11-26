@@ -47,7 +47,7 @@ def validate_media_url(value: str, allow_any: bool = False) -> tuple[str, str]:
     if not site:
         names = ", ".join(SUPPORTED_SITES)
         raise ValueError(f"Sitio no soportado para descargar video. Soportados: {names}. "
-                         "Para guardar cualquier otra pagina usa la pestana Capturar web.")
+                         "Para guardar cualquier otra página usa la pestaña Capturar web.")
     return value, site
 
 
@@ -85,6 +85,6 @@ def validate_web_url(value: str) -> str:
         value = "https://" + value
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("Escribe una direccion web valida (http o https).")
+        raise ValueError("Escribe una dirección web válida (http o https).")
     assert_public_host(parsed.hostname)
     return value

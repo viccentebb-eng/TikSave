@@ -164,8 +164,8 @@ def test_library_snippet_for_text_items(env):
 def test_friendly_error_does_not_blame_region_for_format_errors():
     from app.downloader import friendly_error
     msg = friendly_error("ERROR: [youtube] abc: Requested format is not available")
-    assert "region" not in msg and "yt-dlp" in msg
-    assert "region" in friendly_error("This video is not available in your country")
+    assert "región" not in msg and "yt-dlp" in msg
+    assert "región" in friendly_error("This video is not available in your country")
 
 
 def test_duplicate_download_reuses_active_job(env, monkeypatch):
