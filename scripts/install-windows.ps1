@@ -96,6 +96,25 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     }
 }
 
+# YouTube necesita un interprete de JavaScript para leer sus videos (yt-dlp usa Deno, o Node si no hay Deno).
+if (-not (Get-Command deno -ErrorAction SilentlyContinue) -and -not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "Instalando Deno (necesario para YouTube)..." -ForegroundColor Cyan
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id DenoLand.Deno -e --accept-package-agreements --accept-source-agreements
+        Write-Host "Si Deno acaba de instalarse, cierra y vuelve a abrir PowerShell." -ForegroundColor Yellow
+    } else {
+        Write-Host "Instala Deno desde https://deno.land (necesario para YouTube)." -ForegroundColor Yellow
+    }
+}
+
+# Accesos directos en el Escritorio y en el menu Inicio (abren TikSave en su propia ventana).
+try {
+    & (Join-Path $Root "scripts\create-shortcuts.ps1")
+} catch {
+    Write-Host "No se pudieron crear los accesos directos: $_" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "Instalacion terminada." -ForegroundColor Green
-Write-Host "Ejecuta: .\scripts\run-windows.ps1" -ForegroundColor Green
+Write-Host "Abre TikSave con el acceso directo del Escritorio (o con TikSave.bat)." -ForegroundColor Green
+Write-Host "Para usar TikSave desde Claude Desktop ejecuta: install-mcp.bat" -ForegroundColor Cyan
